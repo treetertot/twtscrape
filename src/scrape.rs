@@ -19,6 +19,7 @@ pub struct Scraper {
     cookie: Option<String>,
     x_csrf_token: Option<String>,
 }
+
 impl Scraper {
     // equivalent to api.GetGuestToken
     async fn refresh_token(&self) -> Result<String, ScraperErr> {
@@ -87,13 +88,13 @@ pub enum ScraperErr {
 #[test]
 fn make_scraper() {
     tokio::runtime::Builder::new_current_thread()
-    .enable_all()
-    .build()
-    .unwrap()
-    .block_on(async {
-        let _scraper = ScraperBuilder::new().finish().await.unwrap();
-        //println!("{:?}", scraper);
-    });
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let _scraper = ScraperBuilder::new().finish().await.unwrap();
+            //println!("{:?}", scraper);
+        });
 }
 
 #[derive(Debug, Clone)]
@@ -106,13 +107,7 @@ pub struct ScraperBuilder {
 }
 impl ScraperBuilder {
     pub fn new() -> Self {
-        ScraperBuilder {
-            bearer_token: "AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw".into(),
-            delay: None,
-            cookie: None,
-            x_csrf_token: None,
-            proxy: None
-        }
+        Self::default()
     }
     pub fn with_bearer_token(mut self, token: String) -> Self {
         self.bearer_token = token;
@@ -151,7 +146,7 @@ impl ScraperBuilder {
                 }
                 .timeout(Duration::from_secs(10))
                 .build()
-                .map_err( ScraperErr::ClientBuildError)?
+                .map_err(ScraperErr::ClientBuildError)?
             },
             delayer: Delayer::new(delay),
             guest_token: TimedToken::new(),
@@ -163,5 +158,17 @@ impl ScraperBuilder {
             .init(Duration::from_secs(60 * 60 * 3), token)
             .await;
         Ok(scpr)
+    }
+}
+
+impl Default for ScraperBuilder {
+    fn default() -> Self {
+        ScraperBuilder {
+            bearer_token: "AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw".into(),
+            delay: None,
+            cookie: None,
+            x_csrf_token: None,
+            proxy: None
+        }
     }
 }
