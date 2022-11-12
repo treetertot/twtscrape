@@ -1,8 +1,9 @@
 use std::{collections::HashMap, time::Duration};
 
-use reqwest::{Client, Proxy, RequestBuilder};
+use reqwest::{Client, Proxy, RequestBuilder, Response};
 
 mod timing;
+use crate::error::{SResult, TwtScrapeError};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use timing::*;
@@ -22,35 +23,37 @@ pub struct Scraper {
 
 impl Scraper {
     // equivalent to api.GetGuestToken
-    async fn refresh_token(&self) -> Result<String, ScraperErr> {
+    async fn refresh_token(&self) -> SResult<String> {
         let successful_response = self
             .client
             .post("https://api.twitter.com/1.1/guest/activate.json")
             .header("Authorization", format!("Bearer {}", self.bearer_token))
             .send()
             .await
-            .map_err(ScraperErr::RequestFailed)?
+            .map_err(TwtScrapeError::RequestFailed)?
             .error_for_status()
-            .map_err(ScraperErr::ErrRequestStatus)?;
+            .map_err(TwtScrapeError::ErrRequestStatus)?;
 
         let mut data: HashMap<String, Value> = successful_response
             .json()
             .await
-            .map_err(ScraperErr::LoadJsonFailed)?;
+            .map_err(TwtScrapeError::LoadJsonFailed)?;
 
         match data.remove("guest_token") {
             Some(Value::String(s)) => Ok(s),
-            _ => Err(ScraperErr::SchemaAccessErr),
+            _ => Err(TwtScrapeError::SchemaAccessErr),
         }
     }
 
-    pub async fn make_get_req(&self, url: &str) -> RequestBuilder {
-        self.client.get(url)
+    pub fn make_get_req(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.client.get(url.as_ref())
     }
-    pub async fn api_req<T: DeserializeOwned>(
-        &self,
-        request: RequestBuilder,
-    ) -> Result<T, ScraperErr> {
+    pub async fn api_req<T: DeserializeOwned>(&self, request: RequestBuilder) -> SResult<T> {
+        let response = self.api_req_raw_request(request).await?;
+        response.json().await.map_err(TwtScrapeError::SchemaErr)
+    }
+
+    pub async fn api_req_raw_request(&self, request: RequestBuilder) -> SResult<Response> {
         self.delayer.wait().await;
         let token = self.guest_token.get_token(self.refresh_token()).await?;
         let headed = request
@@ -62,27 +65,13 @@ impl Scraper {
             }
             _ => headed,
         };
-        cookied
+        Ok(cookied
             .send()
             .await
-            .map_err(ScraperErr::RequestFailed)?
+            .map_err(TwtScrapeError::RequestFailed)?
             .error_for_status()
-            .map_err(ScraperErr::ErrRequestStatus)?
-            .json()
-            .await
-            .map_err(ScraperErr::SchemaErr)
+            .map_err(TwtScrapeError::ErrRequestStatus)?)
     }
-}
-
-#[derive(Debug)]
-pub enum ScraperErr {
-    RequestFailed(reqwest::Error),
-    ErrRequestStatus(reqwest::Error),
-    LoadJsonFailed(reqwest::Error),
-    SchemaAccessErr,
-    SchemaErr(reqwest::Error),
-    InvalidProxy(reqwest::Error),
-    ClientBuildError(reqwest::Error),
 }
 
 #[test]
@@ -126,7 +115,7 @@ impl ScraperBuilder {
         self.proxy = Some(addr);
         self
     }
-    pub async fn finish(self) -> Result<Scraper, ScraperErr> {
+    pub async fn finish(self) -> Result<Scraper, TwtScrapeError> {
         let ScraperBuilder {
             bearer_token,
             delay,
@@ -140,13 +129,13 @@ impl ScraperBuilder {
                 let builder = Client::builder();
                 match proxy {
                     Some(proxy) => {
-                        builder.proxy(Proxy::http(proxy).map_err(ScraperErr::InvalidProxy)?)
+                        builder.proxy(Proxy::http(proxy).map_err(TwtScrapeError::InvalidProxy)?)
                     }
                     None => builder,
                 }
                 .timeout(Duration::from_secs(10))
                 .build()
-                .map_err(ScraperErr::ClientBuildError)?
+                .map_err(TwtScrapeError::ClientBuildError)?
             },
             delayer: Delayer::new(delay),
             guest_token: TimedToken::new(),
