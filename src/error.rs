@@ -1,6 +1,4 @@
-use std::fmt::{Display, Formatter};
 use std::num::ParseIntError;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -23,12 +21,18 @@ pub enum TwtScrapeError {
     ClientBuildError(reqwest::Error),
     #[error("Twitter JSON Error: Code {0}, {1}")]
     TwitterJSONError(i32, String),
-    #[error("Bad Rest ID: {0}")]
-    TwitterBadRestId(String),
-    #[error("Failed to FACE THE FEAR(time and computers), MAKE THE FUTURE(parsing the datetime): {0}")]
+    #[error("Bad Rest ID (type {0}): {1}")]
+    TwitterBadRestId(&'static str, String),
+    #[error(
+        "Failed to FACE THE FEAR(time and computers), MAKE THE FUTURE(parsing the datetime): {0}"
+    )]
     TwitterBadTimeParse(String),
     #[error("The User's JSON as returned by Twitter was not AvailableUser.")]
-    UserResultError
+    UserResultError,
+    #[error("This Timeline Entry `{0}` Not Supported")]
+    BadTimelineEntry(String),
+    #[error("Schema Error for {0}: {1}")]
+    BadJSONSchema(&'static str, String)
 }
 
 impl From<ParseIntError> for TwtScrapeError {

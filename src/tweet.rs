@@ -1,53 +1,618 @@
-use crate::user::{Error, TwtResult};
+use crate::error::SResult;
+use crate::error::TwtScrapeError::{
+    BadJSONSchema, TwitterBadRestId, TwitterBadTimeParse, TwitterJSONError,
+};
+use crate::scrape::Scraper;
+use crate::user::{Error, TwtResult, User};
+use crate::TwitterIdType;
+use ahash::{HashSet, HashSetExt};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, VecDeque};
+use std::fmt::Display;
 
+const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
+pub fn twitter_request_url_thread(
+    handle: impl AsRef<str> + Display,
+    cursor: Option<impl AsRef<str> + Display>,
+) -> String {
+    match cursor {
+        Some(crsr) => {
+            format!("https://twitter.com/i/api/graphql/BoHLKeBvibdYDiJON1oqTg/TweetDetail?variables=%7B%22focalTweetId%22%3A%22{handle}%22%2C%22cursor%22%3A%22{crsr}%22%2C%22referrer%22%3A%22messages%22%2C%22with_rux_injections%22%3Afalse%2C%22includePromotedContent%22%3Afalse%2C%22withCommunity%22%3Atrue%2C%22withQuickPromoteEligibilityTweetFields%22%3Atrue%2C%22withBirdwatchNotes%22%3Afalse%2C%22withSuperFollowsUserFields%22%3Atrue%2C%22withDownvotePerspective%22%3Afalse%2C%22withReactionsMetadata%22%3Afalse%2C%22withReactionsPerspective%22%3Afalse%2C%22withSuperFollowsTweetFields%22%3Atrue%2C%22withVoice%22%3Atrue%2C%22withV2Timeline%22%3Atrue%7D&features=%7B%22responsive_web_twitter_blue_verified_badge_is_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22unified_cards_ad_metadata_container_dynamic_card_content_query_enabled%22%3Atrue%2C%22tweetypie_unmention_optimization_enabled%22%3Atrue%2C%22responsive_web_uc_gql_enabled%22%3Atrue%2C%22vibe_api_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Afalse%2C%22interactive_text_enabled%22%3Atrue%2C%22responsive_web_text_conversations_enabled%22%3Afalse%2C%22responsive_web_enhance_cards_enabled%22%3Atrue%7D")
+        }
+        None => {
+            format!("https://twitter.com/i/api/graphql/BoHLKeBvibdYDiJON1oqTg/TweetDetail?variables=%7B%22focalTweetId%22%3A%22{handle}%22%2C%22with_rux_injections%22%3Afalse%2C%22includePromotedContent%22%3Afalse%2C%22withCommunity%22%3Atrue%2C%22withQuickPromoteEligibilityTweetFields%22%3Atrue%2C%22withBirdwatchNotes%22%3Afalse%2C%22withSuperFollowsUserFields%22%3Atrue%2C%22withDownvotePerspective%22%3Afalse%2C%22withReactionsMetadata%22%3Afalse%2C%22withReactionsPerspective%22%3Afalse%2C%22withSuperFollowsTweetFields%22%3Atrue%2C%22withVoice%22%3Atrue%2C%22withV2Timeline%22%3Atrue%7D&features=%7B%22responsive_web_twitter_blue_verified_badge_is_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22unified_cards_ad_metadata_container_dynamic_card_content_query_enabled%22%3Atrue%2C%22tweetypie_unmention_optimization_enabled%22%3Atrue%2C%22responsive_web_uc_gql_enabled%22%3Atrue%2C%22vibe_api_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Afalse%2C%22interactive_text_enabled%22%3Atrue%2C%22responsive_web_text_conversations_enabled%22%3Afalse%2C%22responsive_web_enhance_cards_enabled%22%3Atrue%7D")
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Tweet {
+    pub id: u64,
+    pub conversation_id: u64,
+    pub tweet_type: TweetType,
+}
+
+impl Tweet {
+    pub async fn parse_thread(
+        scraper: &Scraper,
+        id: impl TwitterIdType + Display,
+    ) -> SResult<(Vec<Tweet>, Vec<User>)> {
+        let base_request = scraper
+            .api_req::<TweetRequest>(scraper.make_get_req(twitter_request_url_thread(&id, None)))
+            .await?;
+
+        base_request.json_request_filter_errors()?;
+
+        let mut requests = Vec::with_capacity(5);
+
+        // lets first get the conversation id
+        let conversation_id = base_request
+            .first_tweet()
+            .ok_or(BadJSONSchema("TweetRequest", "No First Tweet".to_string()))?
+            .legacy
+            .conversation_id_str
+            .parse::<u64>()
+            .map_err(|why| TwitterBadRestId("Conversation RestID", why.to_string()))?;
+
+        if let Some(cursor) = base_request.filter_cursor(FilterCursorTweetRequest::Top) {
+            requests.append(
+                &mut TweetRequest::scroll(
+                    scraper,
+                    &id,
+                    cursor.to_string(),
+                    FilterCursorTweetRequest::Top,
+                )
+                .await?,
+            )
+        }
+
+        requests.push(base_request);
+
+        if let Some(cursor) = base_request.filter_cursor(FilterCursorTweetRequest::Bottom) {
+            requests.append(
+                &mut TweetRequest::scroll(
+                    scraper,
+                    &id,
+                    cursor.to_string(),
+                    FilterCursorTweetRequest::Bottom,
+                )
+                .await?
+                .into(),
+            )
+        }
+
+        let mut tweets = Vec::with_capacity(requests.len() * 10);
+        let mut users = Vec::with_capacity(requests.len() * 10);
+        let mut already_parsed_users = HashSet::with_capacity(10);
+
+        for request in requests {
+            for inst in request
+                .data
+                .threaded_conversation_with_injections_v2
+                .instructions
+            {
+                if let Instruction::TimelineAddEntries(add) = inst {
+                    for entry in add.entries {
+                        match entry {
+                            Entry::Tweet(twt) => {
+                                let mut tweet =
+                                    Tweet::new_from_entry(&twt.item_content.tweet_results)?;
+                                tweet.conversation_id = conversation_id;
+                                tweets.push(tweet);
+
+                                if let TweetResults::Ok(trr) =
+                                    thread.item.item_content.tweet_results
+                                {
+                                    if let TwtResult::User(usr) = &trr.core.user_results.result {
+                                        if already_parsed_users.contains(&usr.id) {
+                                            continue;
+                                        }
+                                    }
+
+                                    let user =
+                                        User::from_result(scraper, trr.core.user_results.result)
+                                            .await?;
+
+                                    users.push(user)
+                                }
+                            }
+                            Entry::ConversationThread(ct) => {
+                                for thread in ct.content.items {
+                                    let mut tweet = Tweet::new_from_entry(
+                                        &thread.item.item_content.tweet_results,
+                                    )?;
+                                    tweet.conversation_id = conversation_id;
+                                    tweets.push(tweet);
+
+                                    if let TweetResults::Ok(trr) =
+                                        thread.item.item_content.tweet_results
+                                    {
+                                        if let TwtResult::User(usr) = &trr.core.user_results.result
+                                        {
+                                            if already_parsed_users.contains(&usr.id) {
+                                                continue;
+                                            }
+                                        }
+
+                                        let user = User::from_result(
+                                            scraper,
+                                            trr.core.user_results.result,
+                                        )
+                                        .await?;
+
+                                        users.push(user)
+                                    }
+                                }
+                            }
+                            Entry::Cursor(_) => continue,
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((tweets, users))
+    }
+
+    /// HEY FUTURE ASS MF!!!
+    /// MAKE SURE YOU SET THE `conversation_id` AFTERWARDS!!!!!
+    pub(crate) fn new_from_entry(t: &TweetResults) -> SResult<Self> {
+        match t {
+            TweetResults::Ok(trr) => {
+                if trr.rest_id.is_empty() || trr.rest_id == "0" {
+                    return Err(TwitterBadRestId("Tweet RestID", trr.rest_id.clone()));
+                }
+
+                let id = trr
+                    .rest_id
+                    .parse::<u64>()
+                    .map_err(|why| TwitterBadRestId("Tweet RestID", why.to_string()))?;
+
+                if trr.legacy.conversation_id_str.is_empty()
+                    || trr.legacy.conversation_id_str == "0"
+                {
+                    return Err(TwitterBadRestId(
+                        "Conversation RestID",
+                        trr.legacy.conversation_id_str.clone(),
+                    ));
+                }
+
+                let conversation_id = trr
+                    .legacy
+                    .conversation_id_str
+                    .parse::<u64>()
+                    .map_err(|why| TwitterBadRestId("Conversation RestID", why.to_string()))?;
+
+                let created = DateTime::<Utc>::from(
+                    DateTime::parse_from_str(&trr.legacy.created_at, TWEET_CREATED_DATETIME)
+                        .map_err(|why| TwitterBadTimeParse(why.to_string()))?,
+                );
+
+                let edit_ids = trr
+                    .edit_control
+                    .edit_tweet_ids
+                    .into_iter()
+                    .map(|id| {
+                        id.parse::<u64>()
+                            .map_err(|why| TwitterBadRestId("Tweet RestID", why.to_string()))
+                    })
+                    .collect::<SResult<Vec<u64>>>()?;
+
+                let media = trr
+                    .legacy
+                    .extended_entities
+                    .media
+                    .into_iter()
+                    .map(|x| {
+                        let media_id = x
+                            .id_str
+                            .parse::<u64>()
+                            .map_err(|why| TwitterBadRestId("Tweet RestID", why.to_string()))?;
+                        Ok(Media {
+                            id: media_id,
+                            media_url_https: x.media_url_https,
+                            r#type: x.r#type,
+                            url: x.url,
+                            ext_alt_text: x.ext_alt_text,
+                            views: x.media_stats.map(|x| x.view_count),
+                        })
+                    })
+                    .collect::<SResult<Vec<Media>>>()?;
+
+                let urls = trr
+                    .legacy
+                    .entities
+                    .urls
+                    .into_iter()
+                    .map(|url| url.expanded_url)
+                    .collect::<Vec<String>>();
+
+                let hashtags = trr
+                    .legacy
+                    .entities
+                    .hashtags
+                    .into_iter()
+                    .map(|ht| ht.text)
+                    .collect::<Vec<String>>();
+
+                let card = trr.card.map(|tcd| Card {
+                    id: tcd.rest_id,
+                    url: tcd.legacy.url,
+                    name: tcd.legacy.name,
+                    values: tcd
+                        .legacy
+                        .binding_values
+                        .into_iter()
+                        .map(|bv| (bv.key, bv.value))
+                        .collect::<HashMap<String, CardValue, ahash::RandomState>>(),
+                });
+
+                let display_text_range = {
+                    if trr.legacy.display_text_range.len() != 2 {
+                        (0, trr.legacy.full_text.len() as u16)
+                    } else {
+                        (
+                            trr.legacy.display_text_range[0],
+                            trr.legacy.display_text_range[1],
+                        )
+                    }
+                };
+
+                let replying_to = {
+                    match &trr.legacy.in_reply_to_status_id_str {
+                        Some(idstr) => {
+                            if idstr.is_empty() || idstr == "0" {
+                                None
+                            } else {
+                                Some(idstr.parse::<u64>().map_err(|why| {
+                                    TwitterBadRestId("Reply Tweet ID", why.to_string())
+                                })?)
+                            }
+                        }
+                        None => None,
+                    }
+                };
+
+                let quoting = {
+                    if !trr.legacy.is_quote_status {
+                        None
+                    } else {
+                        match &trr.legacy.quoted_status_id_str {
+                            Some(qrtid) => {
+                                if qrtid.is_empty() || qrtid == "0" {
+                                    None
+                                } else {
+                                    Some(qrtid.parse::<u64>().map_err(|why| {
+                                        TwitterBadRestId("Quote Tweet ID", why.to_string())
+                                    })?)
+                                }
+                            }
+                            None => None,
+                        }
+                    }
+                };
+
+                Ok(Tweet {
+                    id,
+                    conversation_id,
+                    tweet_type: TweetType::Tweet(Box::new(TweetData {
+                        created,
+                        edit_ids,
+                        entry: Entries {
+                            media,
+                            mentions: trr.legacy.entities.user_mentions.clone(),
+                            urls,
+                            hashtags,
+                        },
+                        card,
+                        text: trr.legacy.full_text.clone(),
+                        source_html: trr.legacy.source.clone(),
+                        display_text_range,
+                        stats: TweetStats {
+                            quote_tweets: trr.legacy.quote_count,
+                            retweets: trr.legacy.retweet_count,
+                            likes: trr.legacy.favourite_count,
+                            replies: trr.legacy.reply_count,
+                        },
+                        reply_info: ReplyInfo {
+                            replying_to,
+                            quoting,
+                        },
+                        moderated: false,
+                        conversation_control: ConversationControl::None,
+                        vibe: trr.vibe.map(|v| Vibe {
+                            discovery_query_text: v.discovery_query_text,
+                            text: v.text,
+                            img_description: v.img_description,
+                        }),
+                    })),
+                })
+            }
+            TweetResults::Tombstone(tomb) => Ok(Tweet {
+                id: entry_id,
+                conversation_id: 0,
+                tweet_type: TweetType::Tombstone(tomb.tombstone.text.text.clone()),
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum TweetType {
+    Tombstone(String),
+    Tweet(Box<TweetData>),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TweetData {
+    pub created: DateTime<Utc>,
+    pub edit_ids: Vec<u64>,
+    pub entry: Entries,
+    pub card: Option<Card>,
+    pub text: String,
+    pub source_html: String,
+    pub display_text_range: (u16, u16),
+    pub stats: TweetStats,
+    pub reply_info: ReplyInfo,
+    pub moderated: bool,
+    pub conversation_control: ConversationControl,
+    pub vibe: Option<Vibe>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Vibe {
+    pub discovery_query_text: String,
+    pub text: String,
+    pub img_description: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TweetStats {
+    pub quote_tweets: u32,
+    pub retweets: u32,
+    pub likes: u32,
+    pub replies: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ConversationControl {
+    None,
+    FollowsOnly,
+    MentionedOnly,
+    Other(String),
+}
+
+impl From<Option<TweetConversationControl>> for ConversationControl {
+    fn from(value: Option<TweetConversationControl>) -> Self {
+        if let Some(v) = value {
+            return match v.policy.as_str() {
+                "ByInvitation" => ConversationControl::MentionedOnly,
+                "Community" => ConversationControl::FollowsOnly,
+                o => ConversationControl::Other(o.to_string()),
+            };
+        }
+        ConversationControl::None
+    }
+}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReplyInfo {
+    pub replying_to: Option<u64>,
+    pub quoting: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Card {
+    pub id: String,
+    pub url: String,
+    pub name: String,
+    pub values: HashMap<String, CardValue, ahash::RandomState>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Entries {
+    pub media: Vec<Media>,
+    pub mentions: Vec<TweetUserMentions>,
+    pub urls: Vec<String>,
+    pub hashtags: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Media {
+    pub id: u64,
+    pub media_url_https: String,
+    pub r#type: String,
+    pub url: String,
+    pub ext_alt_text: Option<String>,
+    pub views: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetRequest {
     pub(crate) errors: Vec<Error>,
+    pub(crate) data: Data,
 }
 
-pub(crate) struct ThreadedConversation {}
+impl TweetRequest {
+    pub(crate) fn first_tweet(&self) -> Option<&TweetResultResult> {
+        for inst in self
+            .data
+            .threaded_conversation_with_injections_v2
+            .instructions
+        {
+            if let Instruction::TimelineAddEntries(add) = inst {
+                for entry in &add.entries {
+                    if let Entry::Tweet(te) = entry {
+                        if let TweetResults::Ok(trr) = &te.item_content.tweet_results {
+                            Some(trr)
+                        }
+                    }
+                }
+            }
+        }
 
+        None
+    }
+
+    pub(crate) fn json_request_filter_errors(&self) -> SResult<()> {
+        if let Some(why) = self.errors.first() {
+            if why.code != 37 {
+                return Err(TwitterJSONError(why.code, why.message.clone()));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn filter_cursor(&self, filter: FilterCursorTweetRequest) -> Option<&str> {
+        for inst in &self
+            .data
+            .threaded_conversation_with_injections_v2
+            .instructions
+        {
+            if let Instruction::TimelineAddEntries(add) = inst {
+                for entry in &add.entries {
+                    if let Entry::Cursor(c) = entry {
+                        match filter {
+                            FilterCursorTweetRequest::Top => {
+                                if c.entry_id.starts_with("cursor-top") {
+                                    return Some(c.content.item_content.value.as_str());
+                                }
+                            }
+                            FilterCursorTweetRequest::Bottom => {
+                                if c.entry_id.starts_with("cursor-bottom") {
+                                    return Some(c.content.item_content.value.as_str());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    pub(crate) async fn scroll(
+        scraper: &Scraper,
+        id: impl TwitterIdType + Display,
+        first_cursor: String,
+        filter: FilterCursorTweetRequest,
+    ) -> SResult<VecDeque<Self>> {
+        let mut requests = VecDeque::with_capacity(5);
+
+        let mut cursor_counter = first_cursor.to_string();
+        let mut break_on_next = false;
+        loop {
+            let scrolled_up_request = scraper
+                .api_req::<TweetRequest>(
+                    scraper.make_get_req(twitter_request_url_thread(&id, Some(&cursor_counter))),
+                )
+                .await?;
+
+            scrolled_up_request.json_request_filter_errors()?;
+
+            requests.push_front(scrolled_up_request);
+            if break_on_next {
+                break;
+            }
+
+            match scrolled_up_request.filter_cursor(filter) {
+                Some(up) => {
+                    cursor_counter = up.to_string();
+                }
+                None => break_on_next = true,
+            }
+        }
+
+        Ok(requests)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum FilterCursorTweetRequest {
+    Top,
+    Bottom,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Data {
+    pub(crate) threaded_conversation_with_injections_v2: ThreadedConversation,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ThreadedConversation {
+    pub instructions: Vec<Instruction>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Instruction {
-    TimelineAddEntries(),
-    TimelineTerminateTimeline(),
+    TimelineAddEntries(TimelineAddEntries),
+    TimelineTerminateTimeline(TimelineTerminateTimeline),
 }
 
-pub(crate) struct TimelineAddEntries {}
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TimelineAddEntries {
+    pub r#type: String,
+    pub entries: Vec<Entry>,
+}
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Entry {
-    Tweet,
-    ConversationThread,
+    Tweet(TweetEnt),
+    ConversationThread(ConversationThread),
     Cursor(Cursor),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetEnt {
+    #[serde(rename = "entryId")]
+    pub entry_id: String,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: String,
+    #[serde(rename = "itemContent")]
+    pub item_content: TweetItemContent,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetItemContent {
+    #[serde(rename = "itemType")]
+    pub item_type: String,
+    pub __typename: String,
+    pub tweet_results: TweetResults,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThread {
     #[serde(rename = "entryId")]
     pub entry_id: String,
     #[serde(rename = "sortIndex")]
     pub sort_index: String,
+    pub content: ConversationThreadContent,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThreadContent {
     #[serde(rename = "entryType")]
-    entry_type: String,
-    __typename: String,
+    pub entry_type: String,
+    pub __typename: String,
+    #[serde(rename = "itemContent")]
+    pub items: Vec<ConversationThreadItems>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThreadItems {
     #[serde(rename = "entryId")]
     pub entry_id: String,
+    pub item: ConversationThreadItem,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThreadItem {
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
+    #[serde(rename = "itemContent")]
+    pub item_content: ConversationThreadItemContent,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThreadItemContent {
     #[serde(rename = "itemType")]
     pub item_type: String,
@@ -55,7 +620,7 @@ pub(crate) struct ConversationThreadItemContent {
     pub tweet_results: TweetResults,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct EditControl {
     pub initial_tweet_id: Option<String>,
     pub edit_tweet_ids: Vec<String>,
@@ -63,40 +628,131 @@ pub(crate) struct EditControl {
     pub is_edit_eligible: bool,
 }
 
-#[derive(Serialize, Deserialize)]
-pub(crate) struct TweetResults {
-    pub result: TweetResultResult,
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) enum TweetResults {
+    Ok(TweetResultResult),
+    Tombstone(TweetTombstone),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetTombstone {
+    pub __typename: String,
+    pub tombstone: TombstoneStone,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TombstoneStone {
+    pub __typename: String,
+    pub text: TombstoneText,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TombstoneText {
+    pub rtl: bool,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetResultResult {
     pub __typename: String,
     pub rest_id: String,
     pub core: TwtRsltCore,
+    pub card: Option<TwtCard>,
+    pub vibe: Option<TwtVibe>,
     pub edit_control: EditControl,
+    pub legacy: TweetLegacy,
+    #[serde(rename = "hasModeratedReplies")]
+    pub has_moderated_replies: bool,
+    pub is_translatable: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TwtVibe {
+    #[serde(rename = "discovery_query_text")]
+    pub discovery_query_text: String,
+    pub text: String,
+    #[serde(rename = "imgDescription")]
+    pub img_description: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TwtCard {
+    pub rest_id: String,
+    pub legacy: TwtCardLegacy,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TwtCardLegacy {
+    pub binding_values: Vec<TwtCardBindV>,
+    pub name: String,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TwtCardBindV {
+    pub key: String,
+    pub value: CardValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CardValue {
+    pub string_value: String,
+    pub r#type: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetLegacy {
+    pub id_str: String,
     pub created_at: String,
     pub conversation_id_str: String,
     pub entities: TweetEntry,
+    pub extended_entities: TweetExtEntry,
+    pub favourite_count: u32,
+    pub is_quote_status: bool,
+    pub possibly_sensitive: bool,
+    pub quote_count: u32,
+    pub reply_count: u32,
+    pub retweet_count: u32,
+    pub source: String,
+    pub full_text: String,
+    pub user_id_str: String,
+    pub display_text_range: Vec<u16>,
+    pub conversation_control: Option<TweetConversationControl>,
+    pub in_reply_to_status_id_str: Option<String>,
+    pub in_reply_to_user_id_str: Option<String>,
+    pub quoted_status_id_str: Option<String>,
+    pub self_thread: TweetSelfThread,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetSelfThread {
+    pub id_str: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetConversationControl {
+    pub policy: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TweetExtEntry {
+    pub media: Vec<TweetEntryMedia>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetEntry {
     pub media: Vec<TweetEntryMedia>,
-    pub user_mentions: Vec<TweetEntryUserMentions>,
+    pub user_mentions: Vec<TweetUserMentions>,
     pub urls: Vec<TweetEntryUrls>,
     pub hashtags: Vec<TweetEntryHashtags>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetEntryHashtags {
     pub text: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetEntryMedia {
     pub id_str: String,
     pub media_url_https: String,
@@ -107,61 +763,63 @@ pub(crate) struct TweetEntryMedia {
     pub media_stats: Option<TweetMediaStats>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetMediaStats {
     pub view_count: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetEntryUrls {
+    pub display_url: String,
     pub expanded_url: String,
     pub url: String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub(crate) struct TweetEntryUserMentions {
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TweetUserMentions {
     pub id_str: String,
     pub name: String,
     pub screen_name: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TwtRsltCore {
     pub user_results: UserResults,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct UserResults {
     pub result: TwtResult,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Cursor {
     #[serde(rename = "entryId")]
     pub entry_id: String,
     pub content: CursorContent,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CursorContent {
     #[serde(rename = "entryType")]
-    entry_type: String,
-    __typename: String,
+    pub entry_type: String,
+    pub __typename: String,
     #[serde(rename = "itemContent")]
-    item_content: CursorItemContent,
+    pub item_content: CursorItemContent,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct CursorItemContent {
     #[serde(rename = "itemType")]
-    item_type: String,
-    __typename: String,
-    value: String,
+    pub item_type: String,
+    pub __typename: String,
+    pub value: String,
     #[serde(rename = "cursorType")]
-    cursor_type: String,
+    pub cursor_type: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TimelineTerminateTimeline {
-    direction: String,
+    pub r#type: String,
+    pub direction: String,
 }
