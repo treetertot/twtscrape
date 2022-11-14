@@ -4,7 +4,7 @@ use std::fmt::Display;
 pub mod error;
 pub mod query;
 pub mod scrape;
-mod search;
+pub mod search;
 pub mod timeline;
 pub mod tweet;
 pub mod user;
