@@ -135,7 +135,9 @@ pub(crate) struct Timeline {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Instruction {
+    #[serde(rename(deserialize = "addEntry"))]
     AddEntry(AddEntry),
+    #[serde(rename(deserialize = "replaceEntry"))]
     ReplaceEntry(ReplaceEntry),
 }
 
@@ -162,7 +164,9 @@ pub(crate) struct Entry {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum Content {
+    #[serde(rename(deserialize = "item"))]
     Item(Item),
+    #[serde(rename(deserialize = "operation"))]
     Operation(Operation),
 }
 

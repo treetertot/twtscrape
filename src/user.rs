@@ -4,9 +4,8 @@ use crate::error::TwtScrapeError::{
     TwitterBadRestId, TwitterBadTimeParse, TwitterJSONError, UserResultError,
 };
 use crate::scrape::Scraper;
-use crate::tweet::UserResults;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
 
 pub const TWITTER_IGNORE_ERROR_CODE: i32 = 37;
@@ -187,9 +186,12 @@ pub(crate) struct Usr {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "__typename")]
 pub(crate) enum TwtResult {
-    UserUnavailable(Box<UserUnavailable>),
+    #[serde(rename(deserialize = "User"))]
     User(Box<AvailableUser>),
+    #[serde(rename(deserialize = "UserUnavailable"))]
+    UserUnavailable(Box<UserUnavailable>),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

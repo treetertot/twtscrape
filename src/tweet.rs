@@ -11,7 +11,7 @@ use serde::de::{MapAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Write};
 
 const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
 pub fn twitter_request_url_thread(
@@ -546,99 +546,11 @@ pub(crate) struct ThreadedConversation {
     pub instructions: Vec<Instruction>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub(crate) enum Instruction {
     TimelineAddEntries(TimelineAddEntries),
     TimelineTerminateTimeline(TimelineTerminateTimeline),
-}
-
-impl<'de> Deserialize<'de> for Instruction {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        enum Field {
-            Type,
-            Entries,
-            Direction,
-        }
-
-        impl<'de> Deserialize<'de> for Field {
-            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                struct FieldVisitor;
-
-                impl<'de> Visitor<'de> for FieldVisitor {
-                    type Value = Field;
-
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("entry type sort content")
-                    }
-
-                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
-                    where
-                        E: de::Error,
-                    {
-                        match value {
-                            "type" => Ok(Field::Type),
-                            "entries" => Ok(Field::Entries),
-                            "direction" => Ok(Field::Direction),
-                            _ => Err(de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-
-                deserializer.deserialize_identifier(FieldVisitor)
-            }
-        }
-
-        struct InstructionVisitor;
-
-        impl<'de> Visitor<'de> for InstructionVisitor {
-            type Value = Instruction;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("enum Instruction")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<Instruction, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Type => {
-                            let typ: Option<String> = map.next_value()?;
-
-                            if let Some(t) = &typ {
-                                match t.as_str() {
-                                    "TimelineAddEntries" => Instruction::TimelineAddEntries(
-                                        map.next_value::<TimelineAddEntries>()?,
-                                    ),
-                                    "TimelineTerminateTimeline" => {
-                                        Instruction::TimelineTerminateTimeline(
-                                            map.next_value::<TimelineTerminateTimeline>()?,
-                                        )
-                                    }
-                                    _ => Err(de::Error::unknown_field(
-                                        t,
-                                        &["TimelineAddEntries", "TimelineTerminateTimeline"],
-                                    )),
-                                }
-                            }
-                        }
-                        _ => continue,
-                    }
-                }
-                Err(de::Error::missing_field("type"))
-            }
-        }
-
-        const VARIANTS: &[&str] = &["TimelineAddEntries", "TimelineTerminateTimeline"];
-        deserializer.deserialize_enum("Instruction", VARIANTS, InstructionVisitor)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
