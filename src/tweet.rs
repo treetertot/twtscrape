@@ -7,9 +7,11 @@ use crate::user::{Error, TwtResult, User};
 use crate::TwitterIdType;
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::de::{MapAccess, Visitor};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::fmt::Display;
+use std::fmt;
+use std::fmt::{Display, Formatter, Write};
 
 const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
 pub fn twitter_request_url_thread(
@@ -544,31 +546,217 @@ pub(crate) struct ThreadedConversation {
     pub instructions: Vec<Instruction>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) enum Instruction {
     TimelineAddEntries(TimelineAddEntries),
     TimelineTerminateTimeline(TimelineTerminateTimeline),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct TimelineAddEntries {
-    pub r#type: String,
-    pub entries: Vec<Entry>,
+impl<'de> Deserialize<'de> for Instruction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field {
+            Type,
+            Entries,
+            Direction,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("entry type sort content")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "type" => Ok(Field::Type),
+                            "entries" => Ok(Field::Entries),
+                            "direction" => Ok(Field::Direction),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct InstructionVisitor;
+
+        impl<'de> Visitor<'de> for InstructionVisitor {
+            type Value = Instruction;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("enum Instruction")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Instruction, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Type => {
+                            let typ: Option<String> = map.next_value()?;
+
+                            if let Some(t) = &typ {
+                                match t.as_str() {
+                                    "TimelineAddEntries" => Instruction::TimelineAddEntries(
+                                        map.next_value::<TimelineAddEntries>()?,
+                                    ),
+                                    "TimelineTerminateTimeline" => {
+                                        Instruction::TimelineTerminateTimeline(
+                                            map.next_value::<TimelineTerminateTimeline>()?,
+                                        )
+                                    }
+                                    _ => Err(de::Error::unknown_field(
+                                        t,
+                                        &["TimelineAddEntries", "TimelineTerminateTimeline"],
+                                    )),
+                                }
+                            }
+                        }
+                        _ => continue,
+                    }
+                }
+                Err(de::Error::missing_field("type"))
+            }
+        }
+
+        const VARIANTS: &[&str] = &["TimelineAddEntries", "TimelineTerminateTimeline"];
+        deserializer.deserialize_enum("Instruction", VARIANTS, InstructionVisitor)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct TimelineAddEntries {
+    pub entries: Vec<Entry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub(crate) enum Entry {
     Tweet(TweetEnt),
     ConversationThread(ConversationThread),
     Cursor(Cursor),
 }
 
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field {
+            EntryId,
+            TypeName,
+            SortId,
+            Content,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("entry type sort content")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "entryId" => Ok(Field::EntryId),
+                            "__typeName" => Ok(Field::TypeName),
+                            "sortId" => Ok(Field::SortId),
+                            "content" => Ok(Field::Content),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct EntryVisitor;
+
+        impl<'de> Visitor<'de> for EntryVisitor {
+            type Value = Entry;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("enum Entry")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Entry, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut entry_id: Option<String> = None;
+                let mut __typename: Option<String> = None;
+                let mut sort_id: Option<String> = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::EntryId => {
+                            entry_id = Some(map.next_value()?);
+                        }
+                        Field::TypeName => {
+                            __typename = Some(map.next_value()?);
+                        }
+                        Field::SortId => {
+                            sort_id = Some(map.next_value()?);
+                        }
+                        Field::Content => {
+                            if let Some(entry) = &entry_id {
+                                if entry.starts_with("tweet-") {
+                                    Ok(Entry::Tweet(map.next_value()?))
+                                } else if entry.starts_with("conversationthread-") {
+                                    Ok(Entry::ConversationThread(map.next_value()?))
+                                } else if entry.starts_with("cursor-") {
+                                    Ok(Entry::Cursor(map.next_value()?))
+                                } else {
+                                    Err(de::Error::unknown_variant(
+                                        entry,
+                                        &["tweet", "conversationthread", "cursor"],
+                                    ))
+                                }
+                            }
+                            Err(de::Error::unknown_variant(
+                                "None",
+                                &["tweet", "conversationthread", "cursor"],
+                            ))
+                        }
+                    }
+                }
+                Err(de::Error::missing_field("content"))
+            }
+        }
+
+        const VARIANTS: &[&str] = &["Tweet", "ConversationThread", "Cursor"];
+        deserializer.deserialize_enum("Entry", VARIANTS, EntryVisitor)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TweetEnt {
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    #[serde(rename = "sortIndex")]
-    pub sort_index: String,
     #[serde(rename = "itemContent")]
     pub item_content: TweetItemContent,
 }
@@ -583,10 +771,6 @@ pub(crate) struct TweetItemContent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ConversationThread {
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    #[serde(rename = "sortIndex")]
-    pub sort_index: String,
     pub content: ConversationThreadContent,
 }
 
@@ -794,8 +978,6 @@ pub(crate) struct UserResults {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Cursor {
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
     pub content: CursorContent,
 }
 
@@ -820,6 +1002,5 @@ pub(crate) struct CursorItemContent {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TimelineTerminateTimeline {
-    pub r#type: String,
     pub direction: String,
 }
