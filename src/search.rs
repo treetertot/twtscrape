@@ -3,6 +3,7 @@ use crate::error::TwtScrapeError::TwitterBadRestId;
 use crate::scrape::Scraper;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use rkyv::Archive;
 use url::Url;
 
 pub fn twitter_request_url_search(
@@ -15,6 +16,7 @@ pub fn twitter_request_url_search(
     url.set_query(Some("query_source=typed_query"));
     url.set_query(Some("pc=1"));
     url.set_query(Some("spelling_corrections=1"));
+    url.set_query(Some("tweet_search_mode=live"));
     url.set_query(Some(&format!("q={query}")));
     if let Some(c) = cursor {
         url.set_query(Some(&format!("cursor={c}")))
@@ -23,7 +25,9 @@ pub fn twitter_request_url_search(
     url.to_string()
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Search {
     pub tweets: Vec<u64>,
 }

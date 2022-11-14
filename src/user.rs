@@ -5,6 +5,7 @@ use crate::error::TwtScrapeError::{
 };
 use crate::scrape::Scraper;
 use chrono::{DateTime, Utc};
+use rkyv::Archive;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
 
@@ -15,7 +16,9 @@ pub fn twitter_request_url_handle(handle: impl AsRef<str> + Display) -> String {
     format!("https://twitter.com/i/api/graphql/ptQPCD7NrFS_TW71Lq07nw/UserByScreenName?variables%3D%7B%22screen_name%22%3A%22{handle}%22%2C%22withSafetyModeUserFields%22%3Atrue%2C%22withSuperFollowsUserFields%22%3Atrue%7D%26features%3D%7B%22responsive_web_twitter_blue_verified_badge_is_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%7D")
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct User {
     pub id: u64,
     pub avatar: Avatar,
@@ -122,20 +125,26 @@ impl User {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Avatar {
     pub url: String,
     pub banner: String,
     pub is_nft: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ProfileName {
     pub display: String,
     pub handle: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ProfileStats {
     pub tweets: u32,
     pub following: u32,
@@ -146,7 +155,9 @@ pub struct ProfileStats {
     pub blue_verified: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ProfileAdditionalInfo {
     pub affiliation: Option<UserAffiliation>,
     pub profession: Option<Professional>,
@@ -156,36 +167,48 @@ pub struct ProfileAdditionalInfo {
     pub birthday: Option<Birthday>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct UserAffiliation {
     pub badge: String,
     pub url: String,
     pub description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct UserRequest {
     pub errors: Vec<Error>,
     pub data: Data,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Error {
     pub message: String,
     pub code: i32,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Data {
     pub user: Usr,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Usr {
     pub result: TwtResult,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 #[serde(tag = "__typename")]
 pub(crate) enum TwtResult {
     #[serde(rename(deserialize = "User"))]
@@ -194,7 +217,9 @@ pub(crate) enum TwtResult {
     UserUnavailable(Box<UserUnavailable>),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct AvailableUser {
     pub id: String,
     pub rest_id: String,
@@ -211,43 +236,57 @@ pub(crate) struct AvailableUser {
     pub affiliates_highlighted_label: Option<Affiliates>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Affiliates {
     pub label: AffiliatesLabel,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct AffiliatesLabel {
     pub badge: Badge,
     pub url: WrapperUrl,
     pub description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Badge {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct WrapperUrl {
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Professional {
     pub rest_id: String,
     pub professional_type: String,
     pub category: Vec<ProfessionalCategory>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ProfessionalCategory {
     pub id: u64,
     pub name: String,
     pub icon_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct UserLegacy {
     pub created: String,
     pub default_profile: bool,
@@ -276,24 +315,32 @@ pub(crate) struct UserLegacy {
     pub withheld_in_countries: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct LegacyExtendedProfile {
     pub birthdate: Option<Birthday>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Birthday {
     day: u8,
     month: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct UserUnavailable {
     pub unavailable_message: UnavailableMessage,
     pub reason: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct UnavailableMessage {
     pub rtl: bool,
     pub text: String,

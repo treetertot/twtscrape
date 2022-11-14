@@ -7,6 +7,7 @@ use crate::user::{Error, TwtResult, User};
 use crate::TwitterIdType;
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
+use rkyv::Archive;
 use serde::de::{MapAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -28,7 +29,9 @@ pub fn twitter_request_url_thread(
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Tweet {
     pub id: u64,
     pub conversation_id: u64,
@@ -340,13 +343,17 @@ impl Tweet {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub enum TweetType {
     Tombstone(String),
     Tweet(Box<TweetData>),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct TweetData {
     pub created: DateTime<Utc>,
     pub edit_ids: Vec<u64>,
@@ -362,14 +369,18 @@ pub struct TweetData {
     pub vibe: Option<Vibe>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Vibe {
     pub discovery_query_text: String,
     pub text: String,
     pub img_description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct TweetStats {
     pub quote_tweets: u32,
     pub retweets: u32,
@@ -377,7 +388,9 @@ pub struct TweetStats {
     pub replies: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub enum ConversationControl {
     None,
     FollowsOnly,
@@ -397,13 +410,17 @@ impl From<Option<TweetConversationControl>> for ConversationControl {
         ConversationControl::None
     }
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ReplyInfo {
     pub replying_to: Option<u64>,
     pub quoting: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Card {
     pub id: String,
     pub url: String,
@@ -411,7 +428,9 @@ pub struct Card {
     pub values: HashMap<String, CardValue, ahash::RandomState>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Entries {
     pub media: Vec<Media>,
     pub mentions: Vec<TweetUserMentions>,
@@ -419,7 +438,9 @@ pub struct Entries {
     pub hashtags: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Media {
     pub id: u64,
     pub media_url_https: String,
@@ -429,7 +450,9 @@ pub struct Media {
     pub views: Option<u32>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetRequest {
     pub(crate) errors: Vec<Error>,
     pub(crate) data: Data,
@@ -536,24 +559,32 @@ pub enum FilterCursorTweetRequest {
     Bottom,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Data {
     pub(crate) threaded_conversation_with_injections_v2: ThreadedConversation,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ThreadedConversation {
     pub instructions: Vec<Instruction>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 #[serde(tag = "type")]
 pub(crate) enum Instruction {
     TimelineAddEntries(TimelineAddEntries),
     TimelineTerminateTimeline(TimelineTerminateTimeline),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TimelineAddEntries {
     pub entries: Vec<Entry>,
 }
@@ -667,13 +698,17 @@ impl<'de> Deserialize<'de> for Entry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetEnt {
     #[serde(rename = "itemContent")]
     pub item_content: TweetItemContent,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetItemContent {
     #[serde(rename = "itemType")]
     pub item_type: String,
@@ -681,12 +716,16 @@ pub(crate) struct TweetItemContent {
     pub tweet_results: TweetResults,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ConversationThread {
     pub content: ConversationThreadContent,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ConversationThreadContent {
     #[serde(rename = "entryType")]
     pub entry_type: String,
@@ -695,20 +734,26 @@ pub(crate) struct ConversationThreadContent {
     pub items: Vec<ConversationThreadItems>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ConversationThreadItems {
     #[serde(rename = "entryId")]
     pub entry_id: String,
     pub item: ConversationThreadItem,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ConversationThreadItem {
     #[serde(rename = "itemContent")]
     pub item_content: ConversationThreadItemContent,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct ConversationThreadItemContent {
     #[serde(rename = "itemType")]
     pub item_type: String,
@@ -716,7 +761,9 @@ pub(crate) struct ConversationThreadItemContent {
     pub tweet_results: TweetResults,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct EditControl {
     pub initial_tweet_id: Option<String>,
     pub edit_tweet_ids: Vec<String>,
@@ -724,31 +771,41 @@ pub(crate) struct EditControl {
     pub is_edit_eligible: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) enum TweetResults {
     Ok(TweetResultResult),
     Tombstone(TweetTombstone),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetTombstone {
     pub __typename: String,
     pub tombstone: TombstoneStone,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TombstoneStone {
     pub __typename: String,
     pub text: TombstoneText,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TombstoneText {
     pub rtl: bool,
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetResultResult {
     pub __typename: String,
     pub rest_id: String,
@@ -762,7 +819,9 @@ pub(crate) struct TweetResultResult {
     pub is_translatable: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TwtVibe {
     #[serde(rename = "discovery_query_text")]
     pub discovery_query_text: String,
@@ -771,32 +830,42 @@ pub(crate) struct TwtVibe {
     pub img_description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TwtCard {
     pub rest_id: String,
     pub legacy: TwtCardLegacy,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TwtCardLegacy {
     pub binding_values: Vec<TwtCardBindV>,
     pub name: String,
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TwtCardBindV {
     pub key: String,
     pub value: CardValue,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct CardValue {
     pub string_value: String,
     pub r#type: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetLegacy {
     pub id_str: String,
     pub created_at: String,
@@ -820,22 +889,30 @@ pub(crate) struct TweetLegacy {
     pub self_thread: TweetSelfThread,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetSelfThread {
     pub id_str: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetConversationControl {
     pub policy: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetExtEntry {
     pub media: Vec<TweetEntryMedia>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetEntry {
     pub media: Vec<TweetEntryMedia>,
     pub user_mentions: Vec<TweetUserMentions>,
@@ -843,12 +920,16 @@ pub(crate) struct TweetEntry {
     pub hashtags: Vec<TweetEntryHashtags>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetEntryHashtags {
     pub text: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetEntryMedia {
     pub id_str: String,
     pub media_url_https: String,
@@ -859,41 +940,55 @@ pub(crate) struct TweetEntryMedia {
     pub media_stats: Option<TweetMediaStats>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetMediaStats {
     pub view_count: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TweetEntryUrls {
     pub display_url: String,
     pub expanded_url: String,
     pub url: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct TweetUserMentions {
     pub id_str: String,
     pub name: String,
     pub screen_name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TwtRsltCore {
     pub user_results: UserResults,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct UserResults {
     pub result: TwtResult,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct Cursor {
     pub content: CursorContent,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct CursorContent {
     #[serde(rename = "entryType")]
     pub entry_type: String,
@@ -902,7 +997,9 @@ pub(crate) struct CursorContent {
     pub item_content: CursorItemContent,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct CursorItemContent {
     #[serde(rename = "itemType")]
     pub item_type: String,
@@ -912,7 +1009,9 @@ pub(crate) struct CursorItemContent {
     pub cursor_type: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub(crate) struct TimelineTerminateTimeline {
     pub direction: String,
 }
