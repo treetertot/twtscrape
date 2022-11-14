@@ -1,3 +1,6 @@
+use crate::error::SResult;
+use crate::error::TwtScrapeError::TwitterBadRestId;
+use crate::scrape::Scraper;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use url::Url;
@@ -25,7 +28,99 @@ pub struct Search {
     pub tweets: Vec<u64>,
 }
 
-impl Search {}
+impl Search {
+    pub async fn make_query(scraper: &Scraper, query: impl AsRef<str>) -> SResult<Self> {
+        let first_request = scraper
+            .api_req::<SearchRequest>(
+                scraper.make_get_req(twitter_request_url_search(query.as_ref(), None)),
+            )
+            .await?;
+
+        let mut tweets = Vec::with_capacity(20);
+
+        let mut next_cursor: Option<String> = None;
+
+        for inst in first_request.timeline.instructions {
+            if let Instruction::AddEntry(add) = inst {
+                for entry in add.entries {
+                    match entry.content {
+                        Content::Item(item) => {
+                            if item.content.tweet.id.is_empty() || item.content.tweet.id == "0" {
+                                return Err(TwitterBadRestId(
+                                    "Search Tweet RestID",
+                                    item.content.tweet.id,
+                                ));
+                            }
+
+                            tweets.push(item.content.tweet.id.parse::<u64>().map_err(|why| {
+                                TwitterBadRestId("Search Tweet RestID", why.to_string())
+                            })?);
+                        }
+                        Content::Operation(op) => {
+                            if entry.entry_id.starts_with("sq-cursor-bottom") {
+                                next_cursor = Some(op.cursor.value)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(next) = next_cursor {
+            let mut cursor_counter = next;
+            loop {
+                let mut request = scraper
+                    .api_req::<SearchRequest>(scraper.make_get_req(twitter_request_url_search(
+                        query.as_ref(),
+                        Some(&cursor_counter),
+                    )))
+                    .await?;
+
+                for inst in request.timeline.instructions {
+                    match inst {
+                        Instruction::AddEntry(add) => {
+                            for entry in add.entries {
+                                if let Content::Item(item) = entry {
+                                    if item.content.tweet.id.is_empty()
+                                        || item.content.tweet.id == "0"
+                                    {
+                                        return Err(TwitterBadRestId(
+                                            "Search Tweet RestID",
+                                            item.content.tweet.id,
+                                        ));
+                                    }
+
+                                    tweets.push(item.content.tweet.id.parse::<u64>().map_err(
+                                        |why| {
+                                            TwitterBadRestId("Search Tweet RestID", why.to_string())
+                                        },
+                                    )?);
+                                }
+                            }
+                        }
+                        Instruction::ReplaceEntry(replace) => {
+                            if replace.entry_id_to_replace.starts_with("sq-cursor-bottom") {
+                                if let Content::Operation(op) = replace.entry.content {
+                                    match op.cursor.value.strip_prefix("") {
+                                        Some(new) => {
+                                            cursor_counter = new.to_string();
+                                        }
+                                        None => break,
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tweets.shrink_to_fit();
+
+        Ok(Self { tweets })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SearchRequest {
@@ -39,8 +134,16 @@ pub(crate) struct Timeline {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Instruction {
-    pub add_entries: AddEntry,
+pub(crate) enum Instruction {
+    AddEntry(AddEntry),
+    ReplaceEntry(ReplaceEntry),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ReplaceEntry {
+    #[serde(rename = "entryIdToReplace")]
+    pub entry_id_to_replace: String,
+    pub entry: Entry,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -50,14 +153,27 @@ pub(crate) struct AddEntry {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Entry {
+    #[serde(rename = "entryId")]
     pub entry_id: String,
+    #[serde(rename = "sortIndex")]
     pub sort_index: String,
     pub content: Content,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Content {
-    pub item: Item,
+pub(crate) enum Content {
+    Item(Item),
+    Operation(Operation),
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Operation {
+    pub cursor: Cursor,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Cursor {
+    pub value: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
