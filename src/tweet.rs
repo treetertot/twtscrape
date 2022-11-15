@@ -8,19 +8,23 @@ use crate::TwitterIdType;
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
 use rkyv::Archive;
+use scraper::{Html, Selector};
 use serde::de::{MapAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fmt::{Display, Write};
 
-const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
+static LINK_SELECTOR: Selector = Selector::parse("a").unwrap();
+
+pub(crate) const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
 pub fn twitter_request_url_thread(
     handle: impl AsRef<str> + Display,
     cursor: Option<impl AsRef<str> + Display>,
 ) -> String {
     match cursor {
         Some(crsr) => {
+            let crsr = urlencoding::encode(crsr.as_ref());
             format!("https://twitter.com/i/api/graphql/BoHLKeBvibdYDiJON1oqTg/TweetDetail?variables=%7B%22focalTweetId%22%3A%22{handle}%22%2C%22cursor%22%3A%22{crsr}%22%2C%22referrer%22%3A%22messages%22%2C%22with_rux_injections%22%3Afalse%2C%22includePromotedContent%22%3Afalse%2C%22withCommunity%22%3Atrue%2C%22withQuickPromoteEligibilityTweetFields%22%3Atrue%2C%22withBirdwatchNotes%22%3Afalse%2C%22withSuperFollowsUserFields%22%3Atrue%2C%22withDownvotePerspective%22%3Afalse%2C%22withReactionsMetadata%22%3Afalse%2C%22withReactionsPerspective%22%3Afalse%2C%22withSuperFollowsTweetFields%22%3Atrue%2C%22withVoice%22%3Atrue%2C%22withV2Timeline%22%3Atrue%7D&features=%7B%22responsive_web_twitter_blue_verified_badge_is_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%2C%22unified_cards_ad_metadata_container_dynamic_card_content_query_enabled%22%3Atrue%2C%22tweetypie_unmention_optimization_enabled%22%3Atrue%2C%22responsive_web_uc_gql_enabled%22%3Atrue%2C%22vibe_api_enabled%22%3Atrue%2C%22responsive_web_edit_tweet_api_enabled%22%3Atrue%2C%22graphql_is_translatable_rweb_tweet_is_translatable_enabled%22%3Atrue%2C%22standardized_nudges_misinfo%22%3Atrue%2C%22tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled%22%3Afalse%2C%22interactive_text_enabled%22%3Atrue%2C%22responsive_web_text_conversations_enabled%22%3Afalse%2C%22responsive_web_enhance_cards_enabled%22%3Atrue%7D")
         }
         None => {
@@ -39,6 +43,7 @@ pub struct Tweet {
 }
 
 impl Tweet {
+    #[tracing::instrument]
     pub async fn parse_thread(
         scraper: &Scraper,
         id: impl TwitterIdType + Display,
@@ -156,6 +161,9 @@ impl Tweet {
                 }
             }
         }
+
+        tweets.shrink_to_fit();
+        users.shrink_to_fit();
 
         Ok((tweets, users))
     }
@@ -298,6 +306,14 @@ impl Tweet {
                     }
                 };
 
+                let source = {
+                    let frag = Html::parse_fragment(&trr.legacy.source);
+                    frag.select(&LINK_SELECTOR)
+                        .next()
+                        .map(|elem| elem.inner_html())
+                        .unwrap_or_default()
+                };
+
                 Ok(Tweet {
                     id,
                     conversation_id,
@@ -312,7 +328,7 @@ impl Tweet {
                         },
                         card,
                         text: trr.legacy.full_text.clone(),
-                        source_html: trr.legacy.source.clone(),
+                        source,
                         display_text_range,
                         stats: TweetStats {
                             quote_tweets: trr.legacy.quote_count,
@@ -360,7 +376,7 @@ pub struct TweetData {
     pub entry: Entries,
     pub card: Option<Card>,
     pub text: String,
-    pub source_html: String,
+    pub source: String,
     pub display_text_range: (u16, u16),
     pub stats: TweetStats,
     pub reply_info: ReplyInfo,
@@ -499,12 +515,12 @@ impl TweetRequest {
                     if let Entry::Cursor(c) = entry {
                         match filter {
                             FilterCursorTweetRequest::Top => {
-                                if c.entry_id.starts_with("cursor-top") {
+                                if c.content.entry_type.starts_with("Top") {
                                     return Some(c.content.item_content.value.as_str());
                                 }
                             }
                             FilterCursorTweetRequest::Bottom => {
-                                if c.entry_id.starts_with("cursor-bottom") {
+                                if c.content.entry_type.starts_with("Bottom") {
                                     return Some(c.content.item_content.value.as_str());
                                 }
                             }
@@ -517,6 +533,7 @@ impl TweetRequest {
         None
     }
 
+    #[tracing::instrument]
     pub(crate) async fn scroll(
         scraper: &Scraper,
         id: impl TwitterIdType + Display,

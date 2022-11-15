@@ -15,3 +15,6 @@ thiserror = "1.0"
 ahash = "0.8"
 url = "2.3"
 rkyv = { version = "0.7", features = ["validation"] }
+scraper = "0.13"
+urlencoding = "2.1"
+tracing = "0.1"

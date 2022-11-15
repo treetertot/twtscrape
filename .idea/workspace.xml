@@ -15,7 +15,17 @@
     <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="8a934fd7-54cd-4cbb-b3cc-4387119f20f9" name="Changes" comment="" />
+    <list default="true" id="8a934fd7-54cd-4cbb-b3cc-4387119f20f9" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/usertweets.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/scrape.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/scrape.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/scrape/timing.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/scrape/timing.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/search.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/search.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/tweet.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/tweet.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/user.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/user.rs" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -23,6 +33,13 @@
   </component>
   <component name="ClangdSettings">
     <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_BRANCH_BY_REPOSITORY">
@@ -78,7 +95,8 @@
       <workItem from="1668383328150" duration="197000" />
       <workItem from="1668383554323" duration="620000" />
       <workItem from="1668384526769" duration="9048000" />
-      <workItem from="1668398322364" duration="1492000" />
+      <workItem from="1668398322364" duration="1866000" />
+      <workItem from="1668468486546" duration="12799000" />
     </task>
     <servers />
   </component>

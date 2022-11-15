@@ -1,9 +1,9 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterBadRestId;
 use crate::scrape::Scraper;
+use rkyv::Archive;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
-use rkyv::Archive;
 use url::Url;
 
 pub fn twitter_request_url_search(
@@ -17,8 +17,10 @@ pub fn twitter_request_url_search(
     url.set_query(Some("pc=1"));
     url.set_query(Some("spelling_corrections=1"));
     url.set_query(Some("tweet_search_mode=live"));
+    let query = urlencoding::encode(query.as_ref());
     url.set_query(Some(&format!("q={query}")));
     if let Some(c) = cursor {
+        let c = urlencoding::encode(c.as_ref());
         url.set_query(Some(&format!("cursor={c}")))
     }
 
@@ -33,6 +35,7 @@ pub struct Search {
 }
 
 impl Search {
+    #[tracing::instrument]
     pub async fn make_query(scraper: &Scraper, query: impl AsRef<str>) -> SResult<Self> {
         let first_request = scraper
             .api_req::<SearchRequest>(

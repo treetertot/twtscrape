@@ -1,12 +1,14 @@
 use std::{collections::HashMap, time::Duration};
 
-use reqwest::{Client, Proxy, RequestBuilder, Response};
+use reqwest::{Client, Proxy, RequestBuilder, Response, StatusCode};
 
 mod timing;
+use crate::error::TwtScrapeError::{ErrRequestStatus, RequestFailed};
 use crate::error::{SResult, TwtScrapeError};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use timing::*;
+use tracing::warn;
 
 //Intended to be associated with a single task
 //Making the time pieces internally mutable with a mutex could make this shareable
@@ -23,6 +25,7 @@ pub struct Scraper {
 
 impl Scraper {
     // equivalent to api.GetGuestToken
+    #[tracing::instrument]
     async fn refresh_token(&self) -> SResult<String> {
         let successful_response = self
             .client
@@ -30,9 +33,9 @@ impl Scraper {
             .header("Authorization", format!("Bearer {}", self.bearer_token))
             .send()
             .await
-            .map_err(TwtScrapeError::RequestFailed)?
+            .map_err(RequestFailed)?
             .error_for_status()
-            .map_err(TwtScrapeError::ErrRequestStatus)?;
+            .map_err(ErrRequestStatus)?;
 
         let mut data: HashMap<String, Value> = successful_response
             .json()
@@ -48,11 +51,14 @@ impl Scraper {
     pub fn make_get_req(&self, url: impl AsRef<str>) -> RequestBuilder {
         self.client.get(url.as_ref())
     }
+
+    #[tracing::instrument]
     pub async fn api_req<T: DeserializeOwned>(&self, request: RequestBuilder) -> SResult<T> {
         let response = self.api_req_raw_request(request).await?;
         response.json().await.map_err(TwtScrapeError::SchemaErr)
     }
 
+    #[tracing::instrument]
     pub async fn api_req_raw_request(&self, request: RequestBuilder) -> SResult<Response> {
         self.delayer.wait().await;
         let token = self.guest_token.get_token(self.refresh_token()).await?;
@@ -65,12 +71,45 @@ impl Scraper {
             }
             _ => headed,
         };
-        Ok(cookied
+
+        match cookied
             .send()
             .await
-            .map_err(TwtScrapeError::RequestFailed)?
+            .map_err(RequestFailed)?
             .error_for_status()
-            .map_err(TwtScrapeError::ErrRequestStatus)?)
+        {
+            Ok(req) => Ok(req),
+            Err(why) => {
+                warn!(error = why, "Got an error while asking twitter. Retrying.");
+                // twitter randomly tells us to fuck off
+                // retrying after a wait usually works
+                let mut std_delay_secs = 1;
+                if let Some(sc) = why.status() {
+                    if sc == StatusCode::TOO_MANY_REQUESTS {
+                        std_delay_secs = 5;
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(std_delay_secs)).await;
+
+                let token = self.guest_token.get_token(self.refresh_token()).await?;
+                let headed = request
+                    .header("Authorization", format!("Bearer {}", self.bearer_token))
+                    .header("X-Guest-Token", token);
+                let cookied = match (&self.cookie, &self.x_csrf_token) {
+                    (Some(cookie), Some(xtk)) => {
+                        headed.header("Cookie", cookie).header("x-csrf-token", xtk)
+                    }
+                    _ => headed,
+                };
+
+                Ok(cookied
+                    .send()
+                    .await
+                    .map_err(RequestFailed)?
+                    .error_for_status()
+                    .map_err(ErrRequestStatus)?)
+            }
+        }
     }
 }
 
@@ -115,6 +154,8 @@ impl ScraperBuilder {
         self.proxy = Some(addr);
         self
     }
+
+    #[tracing::instrument]
     pub async fn finish(self) -> Result<Scraper, TwtScrapeError> {
         let ScraperBuilder {
             bearer_token,

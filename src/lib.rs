@@ -8,6 +8,7 @@ pub mod search;
 pub mod timeline;
 pub mod tweet;
 pub mod user;
+pub mod usertweets;
 
 pub trait TwitterIdType: Display {
     fn to_u64(&self) -> SResult<u64>;

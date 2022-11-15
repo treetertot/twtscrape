@@ -15,11 +15,13 @@ impl TimedToken {
     pub fn new() -> Self {
         TimedToken(Mutex::new(TimeToken::dud()))
     }
+    #[tracing::instrument]
     pub async fn init(&self, expiration: Duration, token: String) {
         let mut guard = self.0.lock().await;
         *guard = TimeToken::new(expiration, token);
     }
     // We're doing io. The extra allocation absolutely isn't a bottleneck
+    #[tracing::instrument]
     pub async fn get_token<E>(
         &self,
         refresh: impl Future<Output = Result<String, E>>,
@@ -41,11 +43,13 @@ impl TimeToken {
     }
     fn new(expiration: Duration, token: String) -> TimeToken {
         TimeToken {
-            token: token,
+            token,
             creation: Instant::now(),
             expiration,
         }
     }
+
+    #[tracing::instrument]
     async fn get_token<E>(
         &mut self,
         refresh: impl Future<Output = Result<String, E>>,
@@ -77,6 +81,8 @@ impl Delayer {
             last_invocation,
         }
     }
+
+    #[tracing::instrument]
     pub async fn wait(&self) {
         if self.delay.is_zero() {
             return;
