@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use reqwest::{Client, Proxy, RequestBuilder, Response, StatusCode};
 
 mod timing;
-use crate::error::TwtScrapeError::{ErrRequestStatus, RequestFailed};
+use crate::error::TwtScrapeError::{ErrRequestStatus, InvalidProxy, RequestFailed};
 use crate::error::{SResult, TwtScrapeError};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -18,9 +18,7 @@ pub struct Scraper {
     client: Client,
     delayer: Delayer,
     guest_token: TimedToken,
-
-    cookie: Option<String>,
-    x_csrf_token: Option<String>,
+    cookies: HashMap<String, String>,
 }
 
 impl Scraper {
@@ -128,10 +126,11 @@ fn make_scraper() {
 #[derive(Debug, Clone)]
 pub struct ScraperBuilder {
     bearer_token: String,
-    delay: Option<Duration>,
-    cookie: Option<String>,
-    x_csrf_token: Option<String>,
+    delay: Option<u64>,
+    variation: Option<u64>,
+    cookies: HashMap<String, String>,
     proxy: Option<String>,
+    proxy_auth: Option<(String, String)>,
 }
 impl ScraperBuilder {
     pub fn new() -> Self {
@@ -141,17 +140,28 @@ impl ScraperBuilder {
         self.bearer_token = token;
         self
     }
-    pub fn with_delay(mut self, delay: Duration) -> Self {
+    pub fn with_delay_millis(mut self, delay: u64) -> Self {
         self.delay = Some(delay);
         self
     }
-    pub fn with_cookie(mut self, cookie: String, x_csrf_token: String) -> Self {
-        self.cookie = Some(cookie);
-        self.x_csrf_token = Some(x_csrf_token);
+
+    pub fn with_delay_variation_millis(mut self, var: u64) -> Self {
+        self.variation = Some(var);
         self
     }
+
     pub fn with_proxy(mut self, addr: String) -> Self {
         self.proxy = Some(addr);
+        self
+    }
+
+    pub fn with_proxy_authentication(mut self, user: String, password: String) -> Self {
+        self.proxy_auth = Some((user, password));
+        self
+    }
+
+    pub fn with_cookies(mut self, cookies: HashMap<String, String>) -> Self {
+        self.cookies = cookies;
         self
     }
 
@@ -160,9 +170,10 @@ impl ScraperBuilder {
         let ScraperBuilder {
             bearer_token,
             delay,
-            cookie,
-            x_csrf_token,
+            variation,
+            cookies,
             proxy,
+            proxy_auth,
         } = self;
         let scpr = Scraper {
             bearer_token,
@@ -170,7 +181,11 @@ impl ScraperBuilder {
                 let builder = Client::builder();
                 match proxy {
                     Some(proxy) => {
-                        builder.proxy(Proxy::http(proxy).map_err(TwtScrapeError::InvalidProxy)?)
+                        let mut proxybld = Proxy::https(proxy).map_err(InvalidProxy)?;
+                        if let Some((user, password)) = proxy_auth {
+                            proxybld = proxybld.basic_auth(&user, &password);
+                        }
+                        builder.proxy(proxybld)
                     }
                     None => builder,
                 }
@@ -180,8 +195,7 @@ impl ScraperBuilder {
             },
             delayer: Delayer::new(delay),
             guest_token: TimedToken::new(),
-            cookie,
-            x_csrf_token,
+            cookies,
         };
         let token = scpr.refresh_token().await?;
         scpr.guest_token

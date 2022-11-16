@@ -1,21 +1,25 @@
-use crate::error::SResult;
-use crate::error::TwtScrapeError::{
-    BadJSONSchema, TwitterBadRestId, TwitterBadTimeParse, TwitterJSONError,
+use crate::{
+    error::{
+        SResult,
+        TwtScrapeError::{BadJSONSchema, TwitterBadRestId, TwitterBadTimeParse},
+    },
+    scrape::Scraper,
+    user::{Error, TwtResult, User},
+    TwitterIdType,
 };
-#[cfg(feature = "scraper")]
-use crate::scrape::Scraper;
-use crate::user::{Error, TwtResult, User};
-use crate::TwitterIdType;
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
 use rkyv::Archive;
 #[cfg(feature = "scraper")]
 use scraper::{Html, Selector};
-use serde::de::{MapAccess, Visitor};
-use serde::{de, Deserialize, Deserializer, Serialize};
-use std::collections::{HashMap, VecDeque};
-use std::fmt;
-use std::fmt::{Display, Write};
+use serde::{
+    de::{self, MapAccess, Visitor},
+    Deserialize, Deserializer, Serialize,
+};
+use std::{
+    collections::{HashMap, VecDeque},
+    fmt::{self, Display, Write},
+};
 
 #[cfg(feature = "scraper")]
 static LINK_SELECTOR: Selector = Selector::parse("a").unwrap();
@@ -116,19 +120,16 @@ impl Tweet {
                                 tweet.conversation_id = conversation_id;
                                 tweets.push(tweet);
 
-                                if let TweetResults::Ok(trr) =
-                                    thread.item.item_content.tweet_results
-                                {
-                                    if let TwtResult::User(usr) = &trr.core.user_results.result {
-                                        if already_parsed_users.contains(&usr.id) {
+                                if let TweetResults::Ok(trr) = twt.item_content.tweet_results {
+                                    if let TwtResult::User(user) = &trr.core.user_results.result {
+                                        if already_parsed_users.contains(&user.id) {
                                             continue;
                                         }
                                     }
-
                                     let user =
                                         User::from_result(scraper, trr.core.user_results.result)
                                             .await?;
-
+                                    already_parsed_users.insert(user.id.to_string());
                                     users.push(user)
                                 }
                             }
@@ -155,7 +156,7 @@ impl Tweet {
                                             trr.core.user_results.result,
                                         )
                                         .await?;
-
+                                        already_parsed_users.insert(user.id.to_string());
                                         users.push(user)
                                     }
                                 }
@@ -501,39 +502,13 @@ impl TweetRequest {
         None
     }
 
-    pub(crate) fn json_request_filter_errors(&self) -> SResult<()> {
-        if let Some(why) = self.errors.first() {
-            if why.code != 37 {
-                return Err(TwitterJSONError(why.code, why.message.clone()));
-            }
-        }
-        Ok(())
-    }
-
     pub(crate) fn filter_cursor(&self, filter: FilterCursorTweetRequest) -> Option<&str> {
         for inst in &self
             .data
             .threaded_conversation_with_injections_v2
             .instructions
         {
-            if let Instruction::TimelineAddEntries(add) = inst {
-                for entry in &add.entries {
-                    if let Entry::Cursor(c) = entry {
-                        match filter {
-                            FilterCursorTweetRequest::Top => {
-                                if c.content.entry_type.starts_with("Top") {
-                                    return Some(c.content.item_content.value.as_str());
-                                }
-                            }
-                            FilterCursorTweetRequest::Bottom => {
-                                if c.content.entry_type.starts_with("Bottom") {
-                                    return Some(c.content.item_content.value.as_str());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            inst.filter_cursor(filter)
         }
 
         None
@@ -576,6 +551,8 @@ impl TweetRequest {
     }
 }
 
+crate::impl_json_filter!(TweetRequest);
+
 #[derive(Clone, Copy)]
 pub enum FilterCursorTweetRequest {
     Top,
@@ -603,6 +580,32 @@ pub(crate) struct ThreadedConversation {
 pub(crate) enum Instruction {
     TimelineAddEntries(TimelineAddEntries),
     TimelineTerminateTimeline(TimelineTerminateTimeline),
+}
+
+impl Instruction {
+    pub(crate) fn filter_cursor(&self, cursor: FilterCursorTweetRequest) -> Option<&str> {
+        if let Instruction::TimelineAddEntries(add) = self {
+            for entry in &add.entries {
+                if let Entry::Cursor(c) = entry {
+                    match cursor {
+                        FilterCursorTweetRequest::Top => {
+                            if c.entry_id.starts_with("cursor-top") {
+                                return Some(c.content.item_content.value.as_str());
+                            }
+                        }
+                        FilterCursorTweetRequest::Bottom => {
+                            if c.entry_id.starts_with("cursor-bottom")
+                                || c.entry_id.starts_with("cursor-showmorethreads")
+                            {
+                                return Some(c.content.item_content.value.as_str());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 #[derive(
@@ -1006,6 +1009,8 @@ pub(crate) struct UserResults {
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub(crate) struct Cursor {
+    #[serde(renamee = "entryId")]
+    pub entry_id: String,
     pub content: CursorContent,
 }
 

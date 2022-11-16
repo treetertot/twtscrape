@@ -2,7 +2,7 @@ use crate::error::{SResult, TwtScrapeError};
 use std::fmt::Display;
 
 pub mod error;
-pub mod query;
+pub mod moderated_tweets;
 #[cfg(feature = "scraper")]
 pub mod scrape;
 pub mod search;
@@ -42,6 +42,28 @@ macro_rules! as_option {
             None
         } else {
             Some($val)
+        }
+    };
+}
+
+#[cfg(feature = "scraper")]
+pub trait FilterJSON {
+    fn filter_json_err(&self) -> SResult<()>;
+}
+
+#[cfg(feature = "scraper")]
+#[macro_export]
+macro_rules! impl_filter_json {
+    ($to:ty) => {
+        impl crate::FilterJSON for $to {
+            fn filter_json_err(&self) -> SResult<()> {
+                if let Some(why) = self.errors.first() {
+                    if why.code != 37 {
+                        return Err(TwitterJSONError(why.code, why.message.clone()));
+                    }
+                }
+                Ok(())
+            }
         }
     };
 }
