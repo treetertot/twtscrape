@@ -3,15 +3,19 @@ use crate::error::SResult;
 use crate::error::TwtScrapeError::{
     TwitterBadRestId, TwitterBadTimeParse, TwitterJSONError, UserResultError,
 };
+#[cfg(feature = "scraper")]
 use crate::scrape::Scraper;
 use chrono::{DateTime, Utc};
 use rkyv::Archive;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
-
+#[cfg(feature = "scraper")]
 pub const TWITTER_IGNORE_ERROR_CODE: i32 = 37;
 // "Fri Oct 09 08:16:38 +0000 2015"
+#[cfg(feature = "scraper")]
 pub const JOINDATE_PARSE_STR: &str = "%a %b %d %T %z %Y";
+
+#[cfg(feature = "scraper")]
 pub fn twitter_request_url_handle(handle: &str) -> String {
     format!("https://twitter.com/i/api/graphql/ptQPCD7NrFS_TW71Lq07nw/UserByScreenName?variables%3D%7B%22screen_name%22%3A%22{handle}%22%2C%22withSafetyModeUserFields%22%3Atrue%2C%22withSuperFollowsUserFields%22%3Atrue%7D%26features%3D%7B%22responsive_web_twitter_blue_verified_badge_is_enabled%22%3Atrue%2C%22verified_phone_label_enabled%22%3Afalse%2C%22responsive_web_graphql_timeline_navigation_enabled%22%3Atrue%7D")
 }
@@ -114,7 +118,9 @@ impl User {
     #[tracing::instrument]
     pub async fn new(scraper: &Scraper, handle: impl AsRef<str>) -> SResult<Self> {
         let req = scraper
-            .api_req::<UserRequest>(scraper.make_get_req(twitter_request_url_handle(handle.as_ref())))
+            .api_req::<UserRequest>(
+                scraper.make_get_req(twitter_request_url_handle(handle.as_ref())),
+            )
             .await?;
         // check for errors
         if let Some(why) = req.errors.first() {

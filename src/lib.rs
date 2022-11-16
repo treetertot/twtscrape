@@ -3,6 +3,7 @@ use std::fmt::Display;
 
 pub mod error;
 pub mod query;
+#[cfg(feature = "scraper")]
 pub mod scrape;
 pub mod search;
 pub mod timeline;

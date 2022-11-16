@@ -1,11 +1,14 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterBadRestId;
+#[cfg(feature = "scraper")]
 use crate::scrape::Scraper;
 use rkyv::Archive;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+#[cfg(feature = "scraper")]
 use url::Url;
 
+#[cfg(feature = "scraper")]
 pub fn twitter_request_url_search(
     query: impl AsRef<str> + Display,
     cursor: Option<impl AsRef<str> + Display>,
@@ -34,6 +37,7 @@ pub struct Search {
     pub tweets: Vec<u64>,
 }
 
+#[cfg(feature = "scraper")]
 impl Search {
     #[tracing::instrument]
     pub async fn make_query(scraper: &Scraper, query: impl AsRef<str>) -> SResult<Self> {

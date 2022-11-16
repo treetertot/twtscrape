@@ -1,15 +1,19 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterJSONError;
+#[cfg(feature = "scraper")]
 use crate::scrape::Scraper;
 use crate::tweet::{Cursor, Tweet, TweetEnt, TweetItemContent, TweetResults};
 use crate::user::{Error, User};
-use chrono::{DateTime, Utc};
 use rkyv::Archive;
-use serde::{Deserialize, Serialize};
+use serde::de::{MapAccess, Visitor};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
+use std::fmt;
 use std::fmt::Display;
+#[cfg(feature = "scraper")]
 use tracing::{span, warn};
 
+#[cfg(feature = "scraper")]
 pub fn twitter_request_url_user_tweet_and_replies(
     id: u64,
     cursor: Option<impl AsRef<str>>,
@@ -33,6 +37,7 @@ pub struct UserTweetsAndReplies {
     pub tweets: Vec<Tweet>,
 }
 
+#[cfg(feature = "scraper")]
 impl UserTweetsAndReplies {
     #[tracing::instrument]
     pub async fn scroll_user_timeline(scraper: &Scraper, user_handle: String) -> SResult<Self> {
@@ -174,6 +179,7 @@ pub(crate) struct UserTweetAndRepliesRequest {
     pub data: UserTARData,
 }
 
+#[cfg(feature = "scraper")]
 impl UserTweetAndRepliesRequest {
     pub(crate) fn json_request_filter_errors(&self) -> SResult<()> {
         if let Some(why) = self.errors.first() {
@@ -247,13 +253,13 @@ pub(crate) struct UserTARData {
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub(crate) struct UserRslt {
-    pub result: Result,
+    pub result: Reslt,
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-pub(crate) struct Result {
+pub(crate) struct Reslt {
     pub __typename: String,
     pub timeline_v2: TimelineV2,
 }
@@ -275,10 +281,11 @@ pub(crate) struct Timeline {
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
+#[serde(tag = "type")]
 pub(crate) enum Instruction {
     TimelineClearCache,
     TimelineAddEntries(TimelineAddEntry),
-    TimelinePinEntry(),
+    TimelinePinEntry(TimelinePinEntry),
 }
 
 #[derive(
@@ -317,6 +324,106 @@ pub(crate) enum Entry {
     HomeConversation(HomeConversation),
     Tweet(TweetEnt),
     Cursor(Cursor),
+}
+
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field {
+            EntryId,
+            SortId,
+            Content,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("entry type sort content")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "entryId" => Ok(Field::EntryId),
+                            "sortId" => Ok(Field::SortId),
+                            "content" => Ok(Field::Content),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct EntryVisitor;
+
+        impl<'de> Visitor<'de> for EntryVisitor {
+            type Value = Entry;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("enum Entry")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Entry, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut entry_id: Option<String> = None;
+                let mut __typename: Option<String> = None;
+                let mut sort_id: Option<String> = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::EntryId => {
+                            entry_id = Some(map.next_value()?);
+                        }
+                        Field::TypeName => {
+                            __typename = Some(map.next_value()?);
+                        }
+                        Field::SortId => {
+                            sort_id = Some(map.next_value()?);
+                        }
+                        Field::Content => {
+                            if let Some(entry) = &entry_id {
+                                if entry.starts_with("tweet-") {
+                                    Ok(Entry::Tweet(map.next_value()?))
+                                } else if entry.starts_with("homeConversation-") {
+                                    Ok(Entry::ConversationThread(map.next_value()?))
+                                } else if entry.starts_with("cursor-") {
+                                    Ok(Entry::Cursor(map.next_value()?))
+                                } else {
+                                    Err(de::Error::unknown_variant(
+                                        entry,
+                                        &["tweet", "homeConversation", "cursor"],
+                                    ))
+                                }
+                            }
+                            Err(de::Error::unknown_variant(
+                                "None",
+                                &["tweet", "homeConversation", "cursor"],
+                            ))
+                        }
+                    }
+                }
+                Err(de::Error::missing_field("content"))
+            }
+        }
+
+        const VARIANTS: &[&str] = &["Tweet", "homeConversation", "Cursor"];
+        deserializer.deserialize_enum("Entry", VARIANTS, EntryVisitor)
+    }
 }
 
 #[derive(

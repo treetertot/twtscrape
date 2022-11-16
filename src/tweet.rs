@@ -2,12 +2,14 @@ use crate::error::SResult;
 use crate::error::TwtScrapeError::{
     BadJSONSchema, TwitterBadRestId, TwitterBadTimeParse, TwitterJSONError,
 };
+#[cfg(feature = "scraper")]
 use crate::scrape::Scraper;
 use crate::user::{Error, TwtResult, User};
 use crate::TwitterIdType;
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
 use rkyv::Archive;
+#[cfg(feature = "scraper")]
 use scraper::{Html, Selector};
 use serde::de::{MapAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -15,8 +17,10 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::fmt::{Display, Write};
 
+#[cfg(feature = "scraper")]
 static LINK_SELECTOR: Selector = Selector::parse("a").unwrap();
 
+#[cfg(feature = "scraper")]
 pub(crate) const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
 pub fn twitter_request_url_thread(
     handle: impl AsRef<str> + Display,
@@ -42,6 +46,7 @@ pub struct Tweet {
     pub tweet_type: TweetType,
 }
 
+#[cfg(feature = "scraper")]
 impl Tweet {
     #[tracing::instrument]
     pub async fn parse_thread(
@@ -474,6 +479,7 @@ pub(crate) struct TweetRequest {
     pub(crate) data: Data,
 }
 
+#[cfg(feature = "scraper")]
 impl TweetRequest {
     pub(crate) fn first_tweet(&self) -> Option<&TweetResultResult> {
         for inst in self
