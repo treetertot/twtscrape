@@ -2,8 +2,9 @@ use crate::error::{SResult, TwtScrapeError};
 use std::fmt::Display;
 
 pub mod error;
+pub mod follow;
 pub mod moderated_tweets;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub mod scrape;
 pub mod search;
 pub mod timeline;
@@ -46,12 +47,12 @@ macro_rules! as_option {
     };
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub trait FilterJSON {
     fn filter_json_err(&self) -> SResult<()>;
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 #[macro_export]
 macro_rules! impl_filter_json {
     ($to:ty) => {

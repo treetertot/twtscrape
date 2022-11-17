@@ -1,5 +1,9 @@
+use nanorand::{Rng, WyRand};
+use std::env::var;
+use std::sync::Arc;
 use std::{future::Future, time::Duration};
 use tokio::{
+    join,
     sync::Mutex,
     time::{sleep, Instant},
 };
@@ -55,6 +59,7 @@ impl TimeToken {
         refresh: impl Future<Output = Result<String, E>>,
     ) -> Result<&str, E> {
         let now = Instant::now();
+
         if now.duration_since(self.creation) > self.expiration {
             let ntk = refresh.await?;
             *self = TimeToken {
@@ -63,36 +68,52 @@ impl TimeToken {
                 expiration: self.expiration,
             };
         }
+
         Ok(&self.token)
     }
 }
 
 #[derive(Debug)]
 pub struct Delayer {
-    delay: Duration,
+    delay: u64,
+    variation: u64,
     last_invocation: Mutex<Instant>,
+    rng: Arc<Mutex<WyRand>>,
 }
 impl Delayer {
-    pub fn new(delay: Option<Duration>) -> Delayer {
+    pub fn new(delay: Option<Duration>, variation: Option<Duration>) -> Delayer {
         let delay = delay.unwrap_or_default();
         let last_invocation = Mutex::new(Instant::now());
+
         Delayer {
-            delay,
+            delay: delay.as_millis() as u64,
+            variation: variation.unwrap_or_default().as_millis() as u64,
             last_invocation,
+            rng: Arc::new(Mutex::new(WyRand::new())),
         }
     }
 
     #[tracing::instrument]
     pub async fn wait(&self) {
-        if self.delay.is_zero() {
+        if self.delay == 0 {
             return;
         }
-        let mut last_time = self.last_invocation.lock().await;
+
+        let (mut last_time, mut rng) = {
+            let timefut = self.last_invocation.lock();
+            let rngfut = self.rng.lock();
+            join!(timefut, rngfut)
+        };
+
         let current_time = Instant::now();
         let diff = current_time.duration_since(*last_time);
+
         *last_time = current_time;
-        if diff < self.delay {
-            sleep(self.delay - diff).await;
+
+        if diff <= self.delay {
+            let delay = Duration::from_millis(self.delay);
+            let random = Duration::from_millis(rng.generate_range(0..self.variation));
+            sleep((delay - diff) + random).await;
         }
     }
     //async fn wait(time: Duration) {

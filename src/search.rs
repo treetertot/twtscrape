@@ -1,14 +1,16 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterBadRestId;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 use crate::scrape::Scraper;
 use rkyv::Archive;
-use serde::{Deserialize, Serialize};
+use serde::de::{MapAccess, Visitor};
+use serde::{de, Deserialize, Deserializer, Serialize};
+use std::fmt;
 use std::fmt::Display;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 use url::Url;
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub fn twitter_request_url_search(
     query: impl AsRef<str> + Display,
     cursor: Option<impl AsRef<str> + Display>,
@@ -37,7 +39,7 @@ pub struct Search {
     pub tweets: Vec<u64>,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl Search {
     #[tracing::instrument]
     pub async fn make_query(scraper: &Scraper, query: impl AsRef<str>) -> SResult<Self> {
@@ -55,7 +57,7 @@ impl Search {
             if let Instruction::AddEntry(add) = inst {
                 for entry in add.entries {
                     match entry.content {
-                        Content::Item(item) => {
+                        Entry::Item(item) => {
                             if item.content.tweet.id.is_empty() || item.content.tweet.id == "0" {
                                 return Err(TwitterBadRestId(
                                     "Search Tweet RestID",
@@ -67,7 +69,7 @@ impl Search {
                                 TwitterBadRestId("Search Tweet RestID", why.to_string())
                             })?);
                         }
-                        Content::Operation(op) => {
+                        Entry::Cursor(op) => {
                             if entry.entry_id.starts_with("sq-cursor-bottom") {
                                 next_cursor = Some(op.cursor.value)
                             }
@@ -91,7 +93,7 @@ impl Search {
                     match inst {
                         Instruction::AddEntry(add) => {
                             for entry in add.entries {
-                                if let Content::Item(item) = entry {
+                                if let Entry::Item(item) = entry {
                                     if item.content.tweet.id.is_empty()
                                         || item.content.tweet.id == "0"
                                     {
@@ -111,7 +113,7 @@ impl Search {
                         }
                         Instruction::ReplaceEntry(replace) => {
                             if replace.entry_id_to_replace.starts_with("sq-cursor-bottom") {
-                                if let Content::Operation(op) = replace.entry.content {
+                                if let Entry::Cursor(op) = replace.entry {
                                     match op.cursor.value.strip_prefix("") {
                                         Some(new) => {
                                             cursor_counter = new.to_string();
@@ -164,21 +166,98 @@ pub(crate) struct AddEntry {
     pub entries: Vec<Entry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) struct Entry {
-    #[serde(rename = "entryId")]
-    pub entry_id: String,
-    #[serde(rename = "sortIndex")]
-    pub sort_index: String,
-    pub content: Content,
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub(crate) enum Entry {
+    Item(Item),
+    Cursor(Operation),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) enum Content {
-    #[serde(rename(deserialize = "item"))]
-    Item(Item),
-    #[serde(rename(deserialize = "operation"))]
-    Operation(Operation),
+impl<'de> Deserialize<'de> for Entry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        enum Field {
+            EntryId,
+            SortIndex,
+            Content,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("entry sort content")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: de::Error,
+                    {
+                        match value {
+                            "entryId" => Ok(Field::EntryId),
+                            "sortIndex" => Ok(Field::SortIndex),
+                            "content" => Ok(Field::Content),
+                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct EntryVisitor;
+
+        impl<'de> Visitor<'de> for EntryVisitor {
+            type Value = Entry;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("enum Entry")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Entry, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut entry_id: Option<String> = None;
+                let mut sort_index: Option<String> = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::EntryId => {
+                            entry_id = Some(map.next_value()?);
+                        }
+                        Field::SortIndex => {
+                            sort_index = Some(map.next_value()?);
+                        }
+                        Field::Content => {
+                            if let Some(entry) = &entry_id {
+                                if entry.starts_with("sq-I") {
+                                    Ok(Entry::Item(map.next_value()?))
+                                } else if entry.starts_with("sq-cursor") {
+                                    Ok(Entry::Cursor(map.next_value()?))
+                                } else {
+                                    Err(de::Error::unknown_variant(entry, &["sq-I", "sq-cursor"]))
+                                }
+                            }
+                            Err(de::Error::unknown_variant("None", &["sq-I", "sq-cursor"]))
+                        }
+                    }
+                }
+                Err(de::Error::missing_field("content"))
+            }
+        }
+
+        const VARIANTS: &[&str] = &["Item", "Cursor"];
+        deserializer.deserialize_enum("Entry", VARIANTS, EntryVisitor)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

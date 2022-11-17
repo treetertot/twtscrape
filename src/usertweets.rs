@@ -1,6 +1,6 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterJSONError;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 use crate::scrape::Scraper;
 use crate::tweet::{Cursor, Tweet, TweetEnt, TweetItemContent, TweetResults};
 use crate::user::{Error, User};
@@ -10,10 +10,10 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 use std::collections::VecDeque;
 use std::fmt;
 use std::fmt::Display;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 use tracing::{span, warn};
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub fn twitter_request_url_user_tweet_and_replies(
     id: u64,
     cursor: Option<impl AsRef<str>>,
@@ -37,7 +37,7 @@ pub struct UserTweetsAndReplies {
     pub tweets: Vec<Tweet>,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl UserTweetsAndReplies {
     #[tracing::instrument]
     pub async fn scroll_user_timeline(scraper: &Scraper, user_handle: String) -> SResult<Self> {
@@ -179,7 +179,7 @@ pub(crate) struct UserTweetAndRepliesRequest {
     pub data: UserTARData,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl UserTweetAndRepliesRequest {
     pub(crate) fn json_request_filter_errors(&self) -> SResult<()> {
         if let Some(why) = self.errors.first() {
@@ -388,9 +388,6 @@ impl<'de> Deserialize<'de> for Entry {
                     match key {
                         Field::EntryId => {
                             entry_id = Some(map.next_value()?);
-                        }
-                        Field::TypeName => {
-                            __typename = Some(map.next_value()?);
                         }
                         Field::SortId => {
                             sort_id = Some(map.next_value()?);

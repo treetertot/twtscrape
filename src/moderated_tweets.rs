@@ -1,16 +1,16 @@
 use crate::error::SResult;
 use crate::error::TwtScrapeError::TwitterJSONError;
 use crate::scrape::Scraper;
-use crate::tweet::{FilterCursorTweetRequest, Instruction, Tweet};
+use crate::tweet::{Entry, FilterCursorTweetRequest, Instruction, Tweet};
 use crate::user::Error;
-use crate::TwitterIdType;
+use crate::{FilterJSON, TwitterIdType};
 use rkyv::Archive;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fmt::Display;
 use tracing::{instrument, warn};
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub fn twitter_moderated_req(
     tweet_id: impl TwitterIdType + Display,
     cursor: Option<impl AsRef<str>>,
@@ -34,21 +34,68 @@ pub struct ModeratedTweets {
     pub tweets: Vec<Tweet>,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl ModeratedTweets {
     #[instrument]
-    pub async fn moderated_tweets(tweet_id: u64) -> SResult<Self> {}
+    pub async fn moderated_tweets(scraper: &Scraper, tweet_id: u64) -> SResult<Self> {
+        let first_request = scraper
+            .api_req::<ModTweetsReq>(scraper.make_get_req(twitter_moderated_req(tweet_id, None)))
+            .await?;
+
+        first_request.filter_json_err()?;
+
+        let mut moderated_reqs = Vec::with_capacity(5);
+
+        let first_cursor = first_request.filter_cursor(FilterCursorTweetRequest::Bottom);
+
+        if let Some(cursor) = first_cursor {
+            moderated_reqs.append(
+                &mut ModTweetsReq::scroll(
+                    scraper,
+                    tweet_id,
+                    cursor.to_string(),
+                    FilterCursorTweetRequest::Bottom,
+                )
+                .await?
+                .into(),
+            );
+        }
+
+        let mut tweets = Vec::with_capacity(moderated_reqs.len() * 5);
+
+        for modtwt in moderated_reqs {
+            if let Rslt::TimelineResponse(tlr) = modtwt.data.tweet.result {
+                for inst in tlr.instructions {
+                    if let Instruction::TimelineAddEntries(entry) = inst {
+                        for entry in entry.entries {
+                            if let Entry::Tweet(twtent) = entry {
+                                let twet =
+                                    Tweet::new_from_entry(&twtent.item_content.tweet_results)?;
+                                tweets.push(twet);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        tweets.shrink_to_fit();
+        Ok(ModeratedTweets {
+            of_tweet: tweet_id,
+            tweets,
+        })
+    }
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-pub struct ModTweetsReq {
+pub(crate) struct ModTweetsReq {
     pub errors: Vec<Error>,
     pub data: Data,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl ModTweetsReq {
     pub(crate) fn filter_cursor(&self, filter: FilterCursorTweetRequest) -> Option<&str> {
         if let Rslt::TimelineResponse(tlr) = &self.data.tweet.result {
@@ -99,20 +146,20 @@ impl ModTweetsReq {
     }
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 crate::impl_filter_json!(ModTweetsReq);
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-pub struct Data {
+pub(crate) struct Data {
     pub tweet: ModeratedTwt,
 }
 
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-pub struct ModeratedTwt {
+pub(crate) struct ModeratedTwt {
     pub result: Rslt,
 }
 
@@ -120,7 +167,7 @@ pub struct ModeratedTwt {
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 #[serde(tagged = "__typename")]
-pub enum Rslt {
+pub(crate) enum Rslt {
     #[serde(rename = "timeline_response")]
     TimelineResponse(TimelineResponse),
 }
@@ -128,6 +175,6 @@ pub enum Rslt {
 #[derive(
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
-pub struct TimelineResponse {
+pub(crate) struct TimelineResponse {
     pub instructions: Vec<Instruction>,
 }

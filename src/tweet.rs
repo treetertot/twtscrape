@@ -10,7 +10,7 @@ use crate::{
 use ahash::{HashSet, HashSetExt};
 use chrono::{DateTime, Utc};
 use rkyv::Archive;
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 use scraper::{Html, Selector};
 use serde::{
     de::{self, MapAccess, Visitor},
@@ -21,10 +21,10 @@ use std::{
     fmt::{self, Display, Write},
 };
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 static LINK_SELECTOR: Selector = Selector::parse("a").unwrap();
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 pub(crate) const TWEET_CREATED_DATETIME: &str = "%a %b %d %T %z %Y";
 pub fn twitter_request_url_thread(
     handle: impl AsRef<str> + Display,
@@ -50,7 +50,7 @@ pub struct Tweet {
     pub tweet_type: TweetType,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl Tweet {
     #[tracing::instrument]
     pub async fn parse_thread(
@@ -480,7 +480,7 @@ pub(crate) struct TweetRequest {
     pub(crate) data: Data,
 }
 
-#[cfg(feature = "scraper")]
+#[cfg(feature = "scrape")]
 impl TweetRequest {
     pub(crate) fn first_tweet(&self) -> Option<&TweetResultResult> {
         for inst in self
