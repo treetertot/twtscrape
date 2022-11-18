@@ -1,8 +1,9 @@
-use std::{collections::HashMap, time::Duration};
+use ahash::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
-use reqwest::{Client, Proxy, RequestBuilder, Response, StatusCode};
 use reqwest::cookie::{CookieStore, Jar};
+use reqwest::{Client, Proxy, RequestBuilder, Response, StatusCode};
 
 mod timing;
 use crate::error::TwtScrapeError::{ErrRequestStatus, InvalidProxy, RequestFailed};
@@ -90,7 +91,6 @@ impl Scraper {
                     .header("Authorization", format!("Bearer {}", self.bearer_token))
                     .header("X-Guest-Token", token);
 
-
                 Ok(headed
                     .send()
                     .await
@@ -122,7 +122,7 @@ pub struct ScraperBuilder {
     proxy: Option<String>,
     proxy_auth: Option<(String, String)>,
     user_agent: Option<String>,
-    cookie: Option<Arc<Jar>>
+    cookie: Option<Arc<Jar>>,
 }
 impl ScraperBuilder {
     pub fn new() -> Self {
@@ -155,7 +155,10 @@ impl ScraperBuilder {
     pub fn with_cookies(mut self, cookies: HashMap<String, String>) -> Self {
         let mut jar = Jar::default();
         for (cookiek, cookieb) in &cookies {
-            jar.add_cookie_str(&format!("{cookiek}={cookieb}"), "https://twitter.com".parse().unwrap())
+            jar.add_cookie_str(
+                &format!("{cookiek}={cookieb}"),
+                "https://twitter.com".parse().unwrap(),
+            )
         }
         self.cookie = Some(Arc::new(jar));
         self
@@ -169,10 +172,19 @@ impl ScraperBuilder {
     #[tracing::instrument]
     pub async fn finish(self) -> Result<Scraper, TwtScrapeError> {
         let ScraperBuilder {
-            bearer_token, delay, variation, proxy, proxy_auth, user_agent, cookie
+            bearer_token,
+            delay,
+            variation,
+            proxy,
+            proxy_auth,
+            user_agent,
+            cookie,
         } = self;
 
-        let delayer = Delayer::new(delay.map(Duration::from_millis), variation.map(Duration::from_millis));
+        let delayer = Delayer::new(
+            delay.map(Duration::from_millis),
+            variation.map(Duration::from_millis),
+        );
 
         let jar = cookie.unwrap_or(Arc::new(Jar::default()));
 
@@ -194,9 +206,8 @@ impl ScraperBuilder {
                     None => builder,
                 }
                 .timeout(Duration::from_secs(10))
-                    .cookie_store(true)
-                    .cookie_provider(jar.clone())
-
+                .cookie_store(true)
+                .cookie_provider(jar.clone())
                 .build()
                 .map_err(TwtScrapeError::ClientBuildError)?
             },
