@@ -1,6 +1,8 @@
 use std::{collections::HashMap, time::Duration};
+use std::sync::Arc;
 
 use reqwest::{Client, Proxy, RequestBuilder, Response, StatusCode};
+use reqwest::cookie::{CookieStore, Jar};
 
 mod timing;
 use crate::error::TwtScrapeError::{ErrRequestStatus, InvalidProxy, RequestFailed};
@@ -18,7 +20,7 @@ pub struct Scraper {
     client: Client,
     delayer: Delayer,
     guest_token: TimedToken,
-    cookies: HashMap<String, String>,
+    cookie: Arc<Jar>,
 }
 
 impl Scraper {
@@ -61,16 +63,10 @@ impl Scraper {
         self.delayer.wait().await;
         let token = self.guest_token.get_token(self.refresh_token()).await?;
         let headed = request
-            .header("Authorization", format!("Bearer {}", self.bearer_token))
-            .header("X-Guest-Token", token);
-        let cookied = match (&self.cookie, &self.x_csrf_token) {
-            (Some(cookie), Some(xtk)) => {
-                headed.header("Cookie", cookie).header("x-csrf-token", xtk)
-            }
-            _ => headed,
-        };
+            .header("X-Guest-Token", token)
+            .bearer_auth(&self.bearer_token);
 
-        match cookied
+        match headed
             .send()
             .await
             .map_err(RequestFailed)?
@@ -93,14 +89,9 @@ impl Scraper {
                 let headed = request
                     .header("Authorization", format!("Bearer {}", self.bearer_token))
                     .header("X-Guest-Token", token);
-                let cookied = match (&self.cookie, &self.x_csrf_token) {
-                    (Some(cookie), Some(xtk)) => {
-                        headed.header("Cookie", cookie).header("x-csrf-token", xtk)
-                    }
-                    _ => headed,
-                };
 
-                Ok(cookied
+
+                Ok(headed
                     .send()
                     .await
                     .map_err(RequestFailed)?
@@ -128,9 +119,10 @@ pub struct ScraperBuilder {
     bearer_token: String,
     delay: Option<u64>,
     variation: Option<u64>,
-    cookies: HashMap<String, String>,
     proxy: Option<String>,
     proxy_auth: Option<(String, String)>,
+    user_agent: Option<String>,
+    cookie: Option<Arc<Jar>>
 }
 impl ScraperBuilder {
     pub fn new() -> Self {
@@ -161,24 +153,36 @@ impl ScraperBuilder {
     }
 
     pub fn with_cookies(mut self, cookies: HashMap<String, String>) -> Self {
-        self.cookies = cookies;
+        let mut jar = Jar::default();
+        for (cookiek, cookieb) in &cookies {
+            jar.add_cookie_str(&format!("{cookiek}={cookieb}"), "https://twitter.com".parse().unwrap())
+        }
+        self.cookie = Some(Arc::new(jar));
+        self
+    }
+
+    pub fn with_ua(mut self, ua: String) -> Self {
+        self.user_agent = Some(ua);
         self
     }
 
     #[tracing::instrument]
     pub async fn finish(self) -> Result<Scraper, TwtScrapeError> {
         let ScraperBuilder {
-            bearer_token,
-            delay,
-            variation,
-            cookies,
-            proxy,
-            proxy_auth,
+            bearer_token, delay, variation, proxy, proxy_auth, user_agent, cookie
         } = self;
+
+        let delayer = Delayer::new(delay.map(Duration::from_millis), variation.map(Duration::from_millis));
+
+        let jar = cookie.unwrap_or(Arc::new(Jar::default()));
+
         let scpr = Scraper {
             bearer_token,
             client: {
-                let builder = Client::builder();
+                let mut builder = Client::builder();
+                if let Some(ua) = user_agent {
+                    builder.user_agent(ua)
+                }
                 match proxy {
                     Some(proxy) => {
                         let mut proxybld = Proxy::https(proxy).map_err(InvalidProxy)?;
@@ -190,12 +194,15 @@ impl ScraperBuilder {
                     None => builder,
                 }
                 .timeout(Duration::from_secs(10))
+                    .cookie_store(true)
+                    .cookie_provider(jar.clone())
+
                 .build()
                 .map_err(TwtScrapeError::ClientBuildError)?
             },
-            delayer: Delayer::new(delay),
+            delayer,
             guest_token: TimedToken::new(),
-            cookies,
+            cookie: jar,
         };
         let token = scpr.refresh_token().await?;
         scpr.guest_token
@@ -211,8 +218,10 @@ impl Default for ScraperBuilder {
             bearer_token: "AAAAAAAAAAAAAAAAAAAAAPYXBAAAAAAACLXUNDekMxqa8h%2F40K4moUkGsoc%3DTYfbDKbT3jJPCEVnMYqilB28NHfOPqkca3qaAxGfsyKCs0wRbw".into(),
             delay: None,
             cookie: None,
-            x_csrf_token: None,
-            proxy: None
+            proxy: None,
+            proxy_auth: None,
+            variation: None,
+            user_agent: None
         }
     }
 }

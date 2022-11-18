@@ -31,7 +31,7 @@ optional = true
 
 [dependencies.reqwest]
 version = "0.11"
-features = ["json", "socks"]
+features = ["json", "socks", "cookies"]
 optional = true
 
 [dependencies.tokio]

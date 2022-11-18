@@ -1,10 +1,14 @@
-use crate::tweet::{Cursor, TimelineTerminateTimeline, UserResults};
+use std::collections::VecDeque;
+use crate::tweet::{Cursor, FilterCursorTweetRequest, TimelineTerminateTimeline, UserResults};
 use crate::user::{Error, User};
 use crate::usertweets::TimelineAddEntry;
 use crate::TwitterIdType;
 use rkyv::Archive;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
+use tracing::{warn};
+use crate::error::SResult;
+use crate::scrape::Scraper;
 
 #[cfg(feature = "scrape")]
 pub fn twitter_following_request(
@@ -42,6 +46,56 @@ pub struct Follows {
     pub data: Vec<User>,
 }
 
+#[cfg(feature = "scrape")]
+impl Follows {
+    #[tracing::instrument]
+    pub async fn get_user_follow(scraper: &Scraper, id: u64, ftype: FollowType) -> SResult<Self> {
+        let mut follow_page_requests = Vec::with_capacity(50);
+
+        let first_request = scraper
+            .api_req::<FollowReq>(scraper.make_get_req(twitter_following_request(id, ftype, None)))
+            .await?;
+        // find the cursor
+        let first_cursor = first_request.filter_cursor(FilterCursorTweetRequest::Bottom);
+
+        if let Some(fc) = first_cursor {
+            follow_page_requests.append(
+                &mut FollowReq::scroll(scraper, user.id, ftype, fc)
+                    .await?
+                    .into(),
+            );
+        }
+
+        let mut users = Vec::with_capacity(1000);
+
+        for req in follow_page_requests {
+            if let Rslt::User(tl) = req.data.result {
+                for inst in tl.timeline.instructions {
+                    if let Instruction::TimelineAddEntries(tl_add) = inst {
+                        for entry in tl_add.entries {
+                            if let  Entry::User(usr) = entry {
+                                match User::from_result(scraper, usr.content.item_content.result.result).await {
+                                    Ok(us) => {
+                                        users.push(us);
+                                    }
+                                    Err(why) => {
+                                        warn!(error = why, user_id = id, "Failed to get data. Skipping...")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+        users.shrink_to_fit();
+
+        Ok(Self { ftype, data: users })
+    }
+}
+
 #[derive(
     Copy,
     Clone,
@@ -68,7 +122,67 @@ pub struct FollowReq {
 }
 
 #[cfg(feature = "scrape")]
-impl FollowReq {}
+impl FollowReq {
+    pub(crate) fn filter_cursor(&self, filter: FilterCursorTweetRequest) -> Option<&str> {
+        if let Rslt::User(tl) = &self.data.result {
+            for inst in &tl.timeline.instructions {
+                if let Instruction::TimelineAddEntries(tl_add) = inst {
+                    for entry in &tl_add.entries {
+                        if let  Entry::Cursor(crsr) = entry {
+                            match cursor {
+                                FilterCursorTweetRequest::Top => {
+                                    if crsr.entry_id.starts_with("cursor-top") {
+                                        return Some(crsr.content.item_content.value.as_str());
+                                    }
+                                }
+                                FilterCursorTweetRequest::Bottom => {
+                                    if crsr.entry_id.starts_with("cursor-bottom")
+                                        || crsr.entry_id.starts_with("cursor-showmorethreads")
+                                    {
+                                        return Some(crsr.content.item_content.value.as_str());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    #[tracing::instrument]
+    pub(crate) async fn scroll(scraper: &Scraper, id: u64, ftype: FollowType, first_cursor: &str) -> SResult<VecDeque<Self>> {
+        let mut requests = VecDeque::with_capacity(5);
+
+        let mut cursor_counter = first_cursor.to_string();
+        let mut break_on_next = false;
+        loop {
+            let scrolled_up_request = scraper
+                .api_req::<FollowReq>(scraper.make_get_req(
+                    twitter_following_request(id, ftype, Some(&cursor_counter)),
+                ))
+                .await?;
+
+            scrolled_up_request.json_request_filter_errors()?;
+
+            requests.push_front(scrolled_up_request);
+            if break_on_next {
+                break;
+            }
+
+            match scrolled_up_request.filter_cursor(FilterCursorTweetRequest::Bottom) {
+                Some(bottom) => {
+                    cursor_counter = bottom.to_string();
+                }
+                None => break_on_next = true,
+            }
+        }
+
+        Ok(requests)
+    }
+}
 
 #[cfg(feature = "scrape")]
 crate::impl_filter_json!(FollowReq);
@@ -138,7 +252,8 @@ pub(crate) struct Usr {
     Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub(crate) struct Content {
-    pub item_content: Content,
+    #[serde(rename = "itemContent")]
+    pub item_content: ItemContent,
 }
 
 #[derive(
