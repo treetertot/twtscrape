@@ -1,14 +1,14 @@
-use std::collections::VecDeque;
+use crate::error::SResult;
+use crate::scrape::Scraper;
 use crate::tweet::{Cursor, FilterCursorTweetRequest, TimelineTerminateTimeline, UserResults};
 use crate::user::{Error, User};
 use crate::usertweets::TimelineAddEntry;
 use crate::TwitterIdType;
 use rkyv::Archive;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fmt::Display;
-use tracing::{warn};
-use crate::error::SResult;
-use crate::scrape::Scraper;
+use tracing::warn;
 
 #[cfg(feature = "scrape")]
 pub fn twitter_following_request(
@@ -39,7 +39,15 @@ pub fn twitter_following_request(
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct Follows {
     pub ftype: FollowType,
@@ -59,11 +67,8 @@ impl Follows {
         let first_cursor = first_request.filter_cursor(FilterCursorTweetRequest::Bottom);
 
         if let Some(fc) = first_cursor {
-            follow_page_requests.append(
-                &mut FollowReq::scroll(scraper, user.id, ftype, fc)
-                    .await?
-                    .into(),
-            );
+            follow_page_requests
+                .append(&mut FollowReq::scroll(scraper, user.id, ftype, fc).await?.into());
         }
 
         let mut users = Vec::with_capacity(1000);
@@ -73,13 +78,22 @@ impl Follows {
                 for inst in tl.timeline.instructions {
                     if let Instruction::TimelineAddEntries(tl_add) = inst {
                         for entry in tl_add.entries {
-                            if let  Entry::User(usr) = entry {
-                                match User::from_result(scraper, usr.content.item_content.result.result).await {
+                            if let Entry::User(usr) = entry {
+                                match User::from_result(
+                                    scraper,
+                                    usr.content.item_content.result.result,
+                                )
+                                .await
+                                {
                                     Ok(us) => {
                                         users.push(us);
                                     }
                                     Err(why) => {
-                                        warn!(error = why, user_id = id, "Failed to get data. Skipping...")
+                                        warn!(
+                                            error = why,
+                                            user_id = id,
+                                            "Failed to get data. Skipping..."
+                                        )
                                     }
                                 }
                             }
@@ -88,7 +102,6 @@ impl Follows {
                 }
             }
         }
-
 
         users.shrink_to_fit();
 
@@ -114,7 +127,15 @@ pub enum FollowType {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct FollowReq {
     pub errors: Vec<Error>,
@@ -128,7 +149,7 @@ impl FollowReq {
             for inst in &tl.timeline.instructions {
                 if let Instruction::TimelineAddEntries(tl_add) = inst {
                     for entry in &tl_add.entries {
-                        if let  Entry::Cursor(crsr) = entry {
+                        if let Entry::Cursor(crsr) = entry {
                             match cursor {
                                 FilterCursorTweetRequest::Top => {
                                     if crsr.entry_id.starts_with("cursor-top") {
@@ -153,16 +174,23 @@ impl FollowReq {
     }
 
     #[tracing::instrument]
-    pub(crate) async fn scroll(scraper: &Scraper, id: u64, ftype: FollowType, first_cursor: &str) -> SResult<VecDeque<Self>> {
+    pub(crate) async fn scroll(
+        scraper: &Scraper,
+        id: u64,
+        ftype: FollowType,
+        first_cursor: &str,
+    ) -> SResult<VecDeque<Self>> {
         let mut requests = VecDeque::with_capacity(5);
 
         let mut cursor_counter = first_cursor.to_string();
         let mut break_on_next = false;
         loop {
             let scrolled_up_request = scraper
-                .api_req::<FollowReq>(scraper.make_get_req(
-                    twitter_following_request(id, ftype, Some(&cursor_counter)),
-                ))
+                .api_req::<FollowReq>(scraper.make_get_req(twitter_following_request(
+                    id,
+                    ftype,
+                    Some(&cursor_counter),
+                )))
                 .await?;
 
             scrolled_up_request.json_request_filter_errors()?;
@@ -188,14 +216,30 @@ impl FollowReq {
 crate::impl_filter_json!(FollowReq);
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct Data {
     pub result: Rslt,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 #[serde(tag = "__typename")]
 pub(crate) enum Rslt {
@@ -203,21 +247,45 @@ pub(crate) enum Rslt {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct Timeline {
     pub timeline: InnerTimeline,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct InnerTimeline {
     pub instructions: Vec<Instruction>,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 #[serde(tag = "type")]
 pub(crate) enum Instruction {
@@ -227,14 +295,30 @@ pub(crate) enum Instruction {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct TimelineAddEntries {
     pub entries: Vec<Entry>,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) enum Entry {
     User(Usr),
@@ -242,14 +326,30 @@ pub(crate) enum Entry {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct Usr {
     pub content: Content,
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct Content {
     #[serde(rename = "itemContent")]
@@ -257,7 +357,15 @@ pub(crate) struct Content {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub(crate) struct ItemContent {
     pub result: UserResults,

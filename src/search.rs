@@ -33,7 +33,15 @@ pub fn twitter_request_url_search(
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct Search {
     pub tweets: Vec<u64>,
