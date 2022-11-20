@@ -4,6 +4,7 @@ use crate::error::TwtScrapeError::TwitterJSONError;
 use crate::scrape::Scraper;
 use crate::tweet::{Cursor, Tweet, TweetEnt, TweetItemContent, TweetResults};
 use crate::user::{Error, User};
+use ahash::{HashSet, HashSetExt};
 use rkyv::Archive;
 use serde::de::{MapAccess, Visitor};
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -30,19 +31,11 @@ pub fn twitter_request_url_user_tweet_and_replies(
 }
 
 #[derive(
-    Clone,
-    Debug,
-    Hash,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct UserTweetsAndReplies {
-    pub users: Vec<User>,
-    pub tweets: Vec<Tweet>,
+    pub users: HashSet<User>,
+    pub tweets: HashSet<Tweet>,
 }
 
 #[cfg(feature = "scrape")]
@@ -54,14 +47,8 @@ impl UserTweetsAndReplies {
         let user = User::new(scraper, &user_handle).await?;
         let timeline_request_url = twitter_request_url_user_tweet_and_replies(user.id, None);
 
-        let mut timelines_requests = {
-            let mut max = user.profile_stats.tweets;
-            if max > 3200 {
-                // un oh terminally online tankie posting alert
-                max = 3200;
-            }
-            Vec::with_capacity(max as usize / 40)
-        };
+        let mut timelines_requests =
+            Vec::with_capacity(user.profile_stats.tweets.min(3200) as usize / 40);
 
         let first_request = scraper
             .api_req::<UserTweetAndRepliesRequest>(scraper.make_get_req(timeline_request_url))
@@ -86,8 +73,8 @@ impl UserTweetsAndReplies {
                 max = 3200;
             }
             (
-                Vec::with_capacity(max as usize * 2),
-                Vec::with_capacity((user.profile_stats.following as usize).min(200)),
+                HashSet::with_capacity(max as usize * 2),
+                HashSet::with_capacity((user.profile_stats.following as usize).min(200)),
             )
         };
 
@@ -97,76 +84,95 @@ impl UserTweetsAndReplies {
                     for entry in add.entries {
                         match entry {
                             Entry::HomeConversation(homeconvo) => {
-                                for hcitem in homeconvo.content.items {
-                                    let twt =
-                                        match Tweet::new_from_entry(&hcitem.item.tweet_results) {
-                                            Ok(twt) => twt,
-                                            Err(why) => {
-                                                warn!(
-                                            user_handle,
-                                            error = why,
-                                            "Failed to get tweet for user timeline. Continuing."
-                                        );
-                                                continue;
-                                            } // TODO: observability
+                                let first = homeconvo.content.items.first();
+                                let last = homeconvo.content.items.last();
+                                let equal = first == last;
+
+                                match (first, last) {
+                                    (Some(f), Some(l)) => {
+                                        let firstid = match &f.item.tweet_results {
+                                            TweetResults::Ok(t) => t.rest_id.clone(),
+                                            TweetResults::Tombstone(tomb) => continue,
                                         };
 
-                                    let user = match hcitem.item.tweet_results {
-                                        TweetResults::Ok(trr) => {
-                                            match User::from_result(
-                                                scraper,
-                                                trr.core.user_results.result,
+                                        let (mut twts, mut usrs) = match Tweet::parse_thread(
+                                            scraper, &firstid,
+                                        )
+                                        .await
+                                        {
+                                            Ok(x) => x,
+                                            Err(why) => {
+                                                warn!(
+                                                            user_handle,
+                                                            tweet = firstid,
+                                                            error = why,
+                                                            "Failed to get tweet for user timeline. Continuing."
+                                                        );
+                                                continue;
+                                            }
+                                        };
+
+                                        tweets.append(&mut twts);
+                                        users.append(&mut usrs);
+                                        if !equal {
+                                            let firstid = match &l.item.tweet_results {
+                                                TweetResults::Ok(t) => t.rest_id.clone(),
+                                                TweetResults::Tombstone(tomb) => continue,
+                                            };
+
+                                            let (mut twts, mut usrs) = match Tweet::parse_thread(
+                                                scraper, &firstid,
                                             )
                                             .await
                                             {
-                                                Ok(user) => user,
+                                                Ok(x) => x,
                                                 Err(why) => {
-                                                    warn!(user_handle, error = why, "Failed to get user for user timeline. Continuing.");
+                                                    warn!(
+                                                            user_handle,
+                                                            tweet = firstid,
+                                                            error = why,
+                                                            "Failed to get tweet for user timeline. Continuing."
+                                                        );
                                                     continue;
                                                 }
-                                            }
-                                        }
-                                        TweetResults::Tombstone(_) => continue,
-                                    };
+                                            };
 
-                                    tweets.push(twt);
-                                    users.push(user);
-                                }
-                            }
-                            Entry::Tweet(tweet) => {
-                                let twt = match Tweet::new_from_entry(
-                                    &tweet.item_content.tweet_results,
-                                ) {
-                                    Ok(twt) => twt,
-                                    Err(why) => {
+                                            tweets.append(&mut twts);
+                                            users.append(&mut usrs);
+                                        }
+                                    }
+                                    (_, _) => {
                                         warn!(
                                             user_handle,
                                             error = why,
                                             "Failed to get tweet for user timeline. Continuing."
                                         );
                                         continue;
-                                    } // TODO: observability
-                                };
-                                let user = match tweet.item_content.tweet_results {
-                                    TweetResults::Ok(trr) => {
-                                        match User::from_result(
-                                            scraper,
-                                            trr.core.user_results.result,
-                                        )
-                                        .await
-                                        {
-                                            Ok(user) => user,
-                                            Err(why) => {
-                                                warn!(user_handle, error = why, "Failed to get user for user timeline. Continuing.");
-                                                continue;
-                                            }
-                                        }
                                     }
-                                    TweetResults::Tombstone(_) => continue,
+                                }
+                            }
+                            Entry::Tweet(tweet) => {
+                                let firstid = match &tweet.item_content.tweet_results {
+                                    TweetResults::Ok(t) => t.rest_id.clone(),
+                                    TweetResults::Tombstone(tomb) => continue,
                                 };
 
-                                tweets.push(twt);
-                                users.push(user);
+                                let (mut twts, mut usrs) =
+                                    match Tweet::parse_thread(scraper, &firstid).await {
+                                        Ok(x) => x,
+                                        Err(why) => {
+                                            warn!(
+                                            user_handle,
+                                            tweet = firstid,
+                                            error = why,
+                                            "Failed to get tweet for user timeline. Continuing."
+                                        );
+                                            continue;
+                                        }
+                                    };
+
+                                tweets.append(&mut twts);
+                                users.append(&mut usrs);
                             }
                             Entry::Cursor(_) => continue,
                         }

@@ -1,6 +1,7 @@
+use rkyv::Archive;
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 pub struct GlobalTimeline {
@@ -85,7 +86,17 @@ pub struct VideoVariant {
     url: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct Place {
     pub id: String,
     pub place_type: String,
@@ -96,7 +107,17 @@ pub struct Place {
     pub bounding_box: BoundingBox,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub struct BoundingBox {
     #[serde(alias = "type")]
     pub box_type: String,

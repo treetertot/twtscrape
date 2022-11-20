@@ -9,6 +9,8 @@ use chrono::{DateTime, Utc};
 use rkyv::Archive;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::Display;
+use std::hash::Hasher;
+
 #[cfg(feature = "scrape")]
 pub const TWITTER_IGNORE_ERROR_CODE: i32 = 37;
 // "Fri Oct 09 08:16:38 +0000 2015"
@@ -21,15 +23,7 @@ pub fn twitter_request_url_handle(handle: &str) -> String {
 }
 
 #[derive(
-    Clone,
-    Debug,
-    Hash,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct User {
     pub id: u64,
@@ -138,6 +132,12 @@ impl User {
         }
 
         Self::from_result(scraper, req.data.user.result).await
+    }
+}
+
+impl std::hash::Hash for User {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
     }
 }
 

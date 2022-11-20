@@ -1,3 +1,4 @@
+use crate::timeline::Place;
 use crate::{
     error::{
         SResult,
@@ -16,6 +17,7 @@ use serde::{
     de::{self, MapAccess, Visitor},
     Deserialize, Deserializer, Serialize,
 };
+use std::hash::Hasher;
 use std::{
     collections::{HashMap, VecDeque},
     fmt::{self, Display, Write},
@@ -42,15 +44,7 @@ pub fn twitter_request_url_thread(
 }
 
 #[derive(
-    Clone,
-    Debug,
-    Hash,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
+    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct Tweet {
     pub id: u64,
@@ -361,6 +355,7 @@ impl Tweet {
                             text: v.text,
                             img_description: v.img_description,
                         }),
+                        place: trr.legacy.place,
                     })),
                 })
             }
@@ -370,6 +365,12 @@ impl Tweet {
                 tweet_type: TweetType::Tombstone(tomb.tombstone.text.text.clone()),
             }),
         }
+    }
+}
+
+impl std::hash::Hash for Tweet {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state)
     }
 }
 
@@ -413,6 +414,7 @@ pub struct TweetData {
     pub moderated: bool,
     pub conversation_control: ConversationControl,
     pub vibe: Option<Vibe>,
+    pub place: Option<Place>,
 }
 
 #[derive(
@@ -1185,6 +1187,7 @@ pub(crate) struct TweetLegacy {
     pub in_reply_to_user_id_str: Option<String>,
     pub quoted_status_id_str: Option<String>,
     pub self_thread: TweetSelfThread,
+    pub place: Option<Place>,
 }
 
 #[derive(
