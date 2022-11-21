@@ -232,11 +232,12 @@ impl Tweet {
                             .map_err(|why| TwitterBadRestId("Tweet RestID", why.to_string()))?;
                         Ok(Media {
                             id: media_id,
+                            media_key: x.media_key,
                             media_url_https: x.media_url_https,
                             r#type: x.r#type,
-                            url: x.url,
                             ext_alt_text: x.ext_alt_text,
                             views: x.media_stats.map(|x| x.view_count),
+                            expanded_url: x.expanded_url,
                         })
                     })
                     .collect::<SResult<Vec<Media>>>()?;
@@ -547,9 +548,10 @@ pub struct Entries {
 )]
 pub struct Media {
     pub id: u64,
+    pub media_key: String,
     pub media_url_https: String,
     pub r#type: String,
-    pub url: String,
+    pub expanded_url: String,
     pub ext_alt_text: Option<String>,
     pub views: Option<u32>,
 }
@@ -1281,9 +1283,10 @@ pub(crate) struct TweetEntryHashtags {
 )]
 pub(crate) struct TweetEntryMedia {
     pub id_str: String,
+    pub media_key: String,
     pub media_url_https: String,
     pub r#type: String,
-    pub url: String,
+    pub expanded_url: String,
     pub ext_alt_text: Option<String>,
     #[serde(rename = "mediaStats")]
     pub media_stats: Option<TweetMediaStats>,
