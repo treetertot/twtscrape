@@ -386,6 +386,7 @@ impl std::hash::Hash for Tweet {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
+#[serde(tag = "t", content = "c")]
 pub enum TweetType {
     Tombstone(String),
     Tweet(Box<TweetData>),
