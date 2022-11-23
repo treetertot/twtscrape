@@ -356,12 +356,12 @@ impl Tweet {
                             text: v.text,
                             img_description: v.img_description,
                         }),
-                        place: trr.legacy.place,
+                        place: trr.legacy.place.clone(),
                     })),
                 })
             }
             TweetResults::Tombstone(tomb) => Ok(Tweet {
-                id: entry_id,
+                id: t.,
                 conversation_id: 0,
                 tweet_type: TweetType::Tombstone(tomb.tombstone.text.text.clone()),
             }),
@@ -644,7 +644,7 @@ impl TweetRequest {
     }
 }
 
-crate::impl_json_filter!(TweetRequest);
+crate::impl_filter_json!(TweetRequest);
 
 #[derive(Clone, Copy)]
 pub enum FilterCursorTweetRequest {
@@ -782,7 +782,7 @@ impl<'de> Deserialize<'de> for Entry {
                             "__typeName" => Ok(Field::TypeName),
                             "sortId" => Ok(Field::SortId),
                             "content" => Ok(Field::Content),
-                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                            _ => Err(de::Error::unknown_variant(value, VARIANTS)),
                         }
                     }
                 }
@@ -997,8 +997,11 @@ pub(crate) struct EditControl {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
+#[serde(tag = "__typename")]
 pub(crate) enum TweetResults {
+    #[serde(flatten)]
     Ok(TweetResultResult),
+    #[serde(flatten)]
     Tombstone(TweetTombstone),
 }
 
@@ -1014,7 +1017,6 @@ pub(crate) enum TweetResults {
     rkyv::Deserialize,
 )]
 pub(crate) struct TweetTombstone {
-    pub __typename: String,
     pub tombstone: TombstoneStone,
 }
 
@@ -1062,7 +1064,6 @@ pub(crate) struct TombstoneText {
     rkyv::Deserialize,
 )]
 pub(crate) struct TweetResultResult {
-    pub __typename: String,
     pub rest_id: String,
     pub core: TwtRsltCore,
     pub card: Option<TwtCard>,
@@ -1384,7 +1385,7 @@ pub(crate) struct UserResults {
     rkyv::Deserialize,
 )]
 pub(crate) struct Cursor {
-    #[serde(renamee = "entryId")]
+    #[serde(rename = "entryId")]
     pub entry_id: String,
     pub content: CursorContent,
 }

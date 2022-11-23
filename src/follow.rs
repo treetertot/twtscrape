@@ -68,7 +68,7 @@ impl Follows {
 
         if let Some(fc) = first_cursor {
             follow_page_requests
-                .append(&mut FollowReq::scroll(scraper, user.id, ftype, fc).await?.into());
+                .append(&mut FollowReq::scroll(scraper, id, ftype, fc).await?.into());
         }
 
         let mut users = Vec::with_capacity(1000);
@@ -150,7 +150,7 @@ impl FollowReq {
                 if let Instruction::TimelineAddEntries(tl_add) = inst {
                     for entry in &tl_add.entries {
                         if let Entry::Cursor(crsr) = entry {
-                            match cursor {
+                            match filter {
                                 FilterCursorTweetRequest::Top => {
                                     if crsr.entry_id.starts_with("cursor-top") {
                                         return Some(crsr.content.item_content.value.as_str());
@@ -243,6 +243,7 @@ pub(crate) struct Data {
 )]
 #[serde(tag = "__typename")]
 pub(crate) enum Rslt {
+    #[serde(flatten)]
     User(Timeline),
 }
 
@@ -290,7 +291,9 @@ pub(crate) struct InnerTimeline {
 #[serde(tag = "type")]
 pub(crate) enum Instruction {
     TimelineClearCache,
+    #[serde(flatten)]
     TimelineTerminateTimeline(TimelineTerminateTimeline),
+    #[serde(flatten)]
     TimelineAddEntries(TimelineAddEntry),
 }
 

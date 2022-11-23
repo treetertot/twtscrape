@@ -56,11 +56,14 @@ pub trait FilterJSON {
 #[macro_export]
 macro_rules! impl_filter_json {
     ($to:ty) => {
-        impl crate::FilterJSON for $to {
+        impl $crate::FilterJSON for $to {
             fn filter_json_err(&self) -> SResult<()> {
                 if let Some(why) = self.errors.first() {
                     if why.code != 37 {
-                        return Err(TwitterJSONError(why.code, why.message.clone()));
+                        return Err($crate::error::TwtScrapeError::TwitterJSONError(
+                            why.code,
+                            why.message.clone(),
+                        ));
                     }
                 }
                 Ok(())
