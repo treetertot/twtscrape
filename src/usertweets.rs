@@ -45,6 +45,7 @@ impl UserTweetsAndReplies {
         let _span_ = span!(tracing::Level::TRACE, "user_handle", user_handle).entered();
 
         let user = User::new(scraper, &user_handle).await?;
+
         let timeline_request_url = twitter_request_url_user_tweet_and_replies(user.id, None);
 
         let mut timelines_requests =
