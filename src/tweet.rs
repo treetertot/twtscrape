@@ -5,7 +5,7 @@ use crate::{
         TwtScrapeError::{BadJSONSchema, TwitterBadRestId, TwitterBadTimeParse},
     },
     scrape::Scraper,
-    user::{Error, TwtResult, User},
+    user::{Error, TwtUsrResult, User},
     TwitterIdType,
 };
 use ahash::{HashSet, HashSetExt};
@@ -44,7 +44,7 @@ pub fn twitter_request_url_thread(
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct Tweet {
     pub id: u64,
@@ -123,7 +123,8 @@ impl Tweet {
                                 tweets.push(tweet);
 
                                 if let TweetResults::Ok(trr) = twt.item_content.tweet_results {
-                                    if let TwtResult::User(user) = &trr.core.user_results.result {
+                                    if let TwtUsrResult::User(user) = &trr.core.user_results.result
+                                    {
                                         if already_parsed_users.contains(&user.id) {
                                             continue;
                                         }
@@ -146,7 +147,8 @@ impl Tweet {
                                     if let TweetResults::Ok(trr) =
                                         thread.item.item_content.tweet_results
                                     {
-                                        if let TwtResult::User(usr) = &trr.core.user_results.result
+                                        if let TwtUsrResult::User(usr) =
+                                            &trr.core.user_results.result
                                         {
                                             if already_parsed_users.contains(&usr.id) {
                                                 continue;
@@ -323,6 +325,20 @@ impl Tweet {
                         .unwrap_or_default()
                 };
 
+                let collaborator_ctrl = trr
+                    .legacy
+                    .collab_control
+                    .map(|x| {
+                        x.collaborators_results
+                            .into_iter()
+                            .map(|x| match x.result {
+                                TwtUsrResult::User(u) => u.rest_id.parse::<u64>().ok(),
+                                TwtUsrResult::UserUnavailable(_) => None,
+                            })
+                            .collect::<Option<Vec<_>>>()
+                    })
+                    .flatten();
+
                 Ok(Tweet {
                     id,
                     conversation_id,
@@ -357,11 +373,12 @@ impl Tweet {
                             img_description: v.img_description,
                         }),
                         place: trr.legacy.place.clone(),
+                        collaborators: collaborator_ctrl,
                     })),
                 })
             }
             TweetResults::Tombstone(tomb) => Ok(Tweet {
-                id: t.,
+                id: 0,
                 conversation_id: 0,
                 tweet_type: TweetType::Tombstone(tomb.tombstone.text.text.clone()),
             }),
@@ -380,6 +397,7 @@ impl std::hash::Hash for Tweet {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -397,6 +415,7 @@ pub enum TweetType {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -417,6 +436,7 @@ pub struct TweetData {
     pub conversation_control: ConversationControl,
     pub vibe: Option<Vibe>,
     pub place: Option<Place>,
+    pub collaborators: Option<Vec<u64>>,
 }
 
 #[derive(
@@ -424,6 +444,7 @@ pub struct TweetData {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -441,6 +462,7 @@ pub struct Vibe {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -459,6 +481,7 @@ pub struct TweetStats {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -489,6 +512,7 @@ impl From<Option<TweetConversationControl>> for ConversationControl {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -505,6 +529,7 @@ pub struct ReplyInfo {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -523,6 +548,7 @@ pub struct Card {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -541,6 +567,7 @@ pub struct Entries {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -561,6 +588,7 @@ pub struct Media {
     Clone,
     Debug,
     Hash,
+    Eq,
     PartialEq,
     Serialize,
     Deserialize,
@@ -657,6 +685,7 @@ pub enum FilterCursorTweetRequest {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -672,6 +701,7 @@ pub(crate) struct Data {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -687,6 +717,7 @@ pub(crate) struct ThreadedConversation {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -730,6 +761,7 @@ impl Instruction {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -740,7 +772,7 @@ pub(crate) struct TimelineAddEntries {
     pub entries: Vec<Entry>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub(crate) enum Entry {
     Tweet(TweetEnt),
     ConversationThread(ConversationThread),
@@ -854,6 +886,7 @@ impl<'de> Deserialize<'de> for Entry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -870,6 +903,7 @@ pub(crate) struct TweetEnt {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -888,6 +922,7 @@ pub(crate) struct TweetItemContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -903,6 +938,7 @@ pub(crate) struct ConversationThread {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -922,6 +958,7 @@ pub(crate) struct ConversationThreadContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -939,6 +976,7 @@ pub(crate) struct ConversationThreadItems {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -955,6 +993,7 @@ pub(crate) struct ConversationThreadItem {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -973,6 +1012,7 @@ pub(crate) struct ConversationThreadItemContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -991,6 +1031,7 @@ pub(crate) struct EditControl {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -999,9 +1040,7 @@ pub(crate) struct EditControl {
 )]
 #[serde(tag = "__typename")]
 pub(crate) enum TweetResults {
-    #[serde(flatten)]
     Ok(TweetResultResult),
-    #[serde(flatten)]
     Tombstone(TweetTombstone),
 }
 
@@ -1010,6 +1049,7 @@ pub(crate) enum TweetResults {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1025,6 +1065,7 @@ pub(crate) struct TweetTombstone {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1041,6 +1082,7 @@ pub(crate) struct TombstoneStone {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1057,6 +1099,7 @@ pub(crate) struct TombstoneText {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1080,6 +1123,7 @@ pub(crate) struct TweetResultResult {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1099,6 +1143,7 @@ pub(crate) struct TwtVibe {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1115,6 +1160,7 @@ pub(crate) struct TwtCard {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1132,6 +1178,7 @@ pub(crate) struct TwtCardLegacy {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1148,6 +1195,7 @@ pub(crate) struct TwtCardBindV {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1164,6 +1212,7 @@ pub struct CardValue {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1192,6 +1241,7 @@ pub(crate) struct TweetLegacy {
     pub quoted_status_id_str: Option<String>,
     pub self_thread: TweetSelfThread,
     pub place: Option<Place>,
+    pub collab_control: Option<CollabControl>,
 }
 
 #[derive(
@@ -1199,6 +1249,39 @@ pub(crate) struct TweetLegacy {
     Debug,
     Hash,
     PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub(crate) struct CollabControl {
+    pub collaborators_results: Vec<UserObject>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub(crate) struct UserObject {
+    pub result: TwtUsrResult,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Hash,
+    PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1214,6 +1297,7 @@ pub(crate) struct TweetSelfThread {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1229,6 +1313,7 @@ pub(crate) struct TweetConversationControl {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1244,6 +1329,7 @@ pub(crate) struct TweetExtEntry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1262,6 +1348,7 @@ pub(crate) struct TweetEntry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1277,6 +1364,7 @@ pub(crate) struct TweetEntryHashtags {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1299,6 +1387,7 @@ pub(crate) struct TweetEntryMedia {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1314,6 +1403,7 @@ pub(crate) struct TweetMediaStats {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1331,6 +1421,7 @@ pub(crate) struct TweetEntryUrls {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1348,6 +1439,7 @@ pub struct TweetUserMentions {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1363,6 +1455,7 @@ pub(crate) struct TwtRsltCore {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1370,7 +1463,7 @@ pub(crate) struct TwtRsltCore {
     rkyv::Deserialize,
 )]
 pub(crate) struct UserResults {
-    pub result: TwtResult,
+    pub result: TwtUsrResult,
 }
 
 #[derive(
@@ -1378,6 +1471,7 @@ pub(crate) struct UserResults {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1395,6 +1489,7 @@ pub(crate) struct Cursor {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1414,6 +1509,7 @@ pub(crate) struct CursorContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -1434,6 +1530,7 @@ pub(crate) struct CursorItemContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,

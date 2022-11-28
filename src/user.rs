@@ -23,7 +23,7 @@ pub fn twitter_request_url_handle(handle: &str) -> String {
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
 )]
 pub struct User {
     pub id: u64,
@@ -39,8 +39,8 @@ pub struct User {
 
 impl User {
     #[tracing::instrument]
-    pub(crate) async fn from_result(scraper: &Scraper, result: TwtResult) -> SResult<Self> {
-        if let TwtResult::User(user) = result {
+    pub(crate) async fn from_result(scraper: &Scraper, result: TwtUsrResult) -> SResult<Self> {
+        if let TwtUsrResult::User(user) = result {
             if user.rest_id.is_empty() || user.rest_id == "0" {
                 return Err(TwitterBadRestId("user", user.rest_id));
             }
@@ -146,6 +146,7 @@ impl std::hash::Hash for User {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -163,6 +164,7 @@ pub struct Avatar {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -179,6 +181,7 @@ pub struct ProfileName {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -200,6 +203,7 @@ pub struct ProfileStats {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -220,6 +224,7 @@ pub struct ProfileAdditionalInfo {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -237,6 +242,7 @@ pub struct UserAffiliation {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -253,6 +259,7 @@ pub(crate) struct UserRequest {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -269,6 +276,7 @@ pub(crate) struct Error {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -284,6 +292,7 @@ pub(crate) struct Data {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -291,7 +300,7 @@ pub(crate) struct Data {
     rkyv::Deserialize,
 )]
 pub(crate) struct Usr {
-    pub result: TwtResult,
+    pub result: TwtUsrResult,
 }
 
 #[derive(
@@ -299,6 +308,7 @@ pub(crate) struct Usr {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -306,7 +316,7 @@ pub(crate) struct Usr {
     rkyv::Deserialize,
 )]
 #[serde(tag = "__typename")]
-pub(crate) enum TwtResult {
+pub(crate) enum TwtUsrResult {
     #[serde(rename(deserialize = "User"))]
     User(Box<AvailableUser>),
     #[serde(rename(deserialize = "UserUnavailable"))]
@@ -318,6 +328,7 @@ pub(crate) enum TwtResult {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -345,6 +356,7 @@ pub(crate) struct AvailableUser {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -360,6 +372,7 @@ pub(crate) struct Affiliates {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -377,6 +390,7 @@ pub(crate) struct AffiliatesLabel {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -392,6 +406,7 @@ pub(crate) struct Badge {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -407,6 +422,7 @@ pub(crate) struct WrapperUrl {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -424,6 +440,7 @@ pub struct Professional {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -441,6 +458,7 @@ pub struct ProfessionalCategory {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -480,6 +498,7 @@ pub(crate) struct UserLegacy {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -495,6 +514,7 @@ pub(crate) struct LegacyExtendedProfile {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -511,6 +531,7 @@ pub struct Birthday {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -527,6 +548,7 @@ pub(crate) struct UserUnavailable {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,

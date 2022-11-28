@@ -31,6 +31,7 @@ pub fn twitter_moderated_req(
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -100,6 +101,7 @@ impl ModeratedTweets {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -170,6 +172,7 @@ crate::impl_filter_json!(ModTweetsReq);
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -185,6 +188,7 @@ pub(crate) struct Data {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -200,13 +204,14 @@ pub(crate) struct ModeratedTwt {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-#[serde(tagged = "__typename")]
+#[serde(tag = "__typename")]
 pub(crate) enum Rslt {
     #[serde(rename = "timeline_response")]
     TimelineResponse(TimelineResponse),
@@ -217,6 +222,7 @@ pub(crate) enum Rslt {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,

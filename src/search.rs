@@ -37,6 +37,7 @@ pub fn twitter_request_url_search(
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -213,7 +214,10 @@ impl<'de> Deserialize<'de> for Entry {
                             "entryId" => Ok(Field::EntryId),
                             "sortIndex" => Ok(Field::SortIndex),
                             "content" => Ok(Field::Content),
-                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                            _ => Err(de::Error::unknown_field(
+                                value,
+                                &["entryId", "sortIndex", "content"],
+                            )),
                         }
                     }
                 }

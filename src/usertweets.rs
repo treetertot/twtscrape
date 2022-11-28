@@ -31,7 +31,16 @@ pub fn twitter_request_url_user_tweet_and_replies(
 }
 
 #[derive(
-    Clone, Debug, PartialEq, Serialize, Deserialize, Archive, rkyv::Serialize, rkyv::Deserialize,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct UserTweetsAndReplies {
     pub users: HashSet<User>,
@@ -144,7 +153,6 @@ impl UserTweetsAndReplies {
                                     (_, _) => {
                                         warn!(
                                             user_handle,
-                                            error = why,
                                             "Failed to get tweet for user timeline. Continuing."
                                         );
                                         continue;
@@ -190,6 +198,7 @@ impl UserTweetsAndReplies {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -269,6 +278,7 @@ impl UserTweetAndRepliesRequest {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -284,6 +294,7 @@ pub(crate) struct UserTARData {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -299,6 +310,7 @@ pub(crate) struct UserRslt {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -315,6 +327,7 @@ pub(crate) struct Reslt {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -330,6 +343,7 @@ pub(crate) struct TimelineV2 {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -345,6 +359,7 @@ pub(crate) struct Timeline {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -363,6 +378,7 @@ pub(crate) enum Instruction {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -378,6 +394,7 @@ pub(crate) struct TimelinePinEntry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -393,6 +410,7 @@ pub(crate) struct TlPinEntryEntry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -409,6 +427,7 @@ pub(crate) struct TlPinContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -419,17 +438,7 @@ pub(crate) struct TimelineAddEntry {
     pub entries: Vec<Entry>,
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Hash,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
+#[derive(Clone, Debug, Hash, PartialEq, Serialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub(crate) enum Entry {
     HomeConversation(HomeConversation),
     Tweet(TweetEnt),
@@ -469,7 +478,10 @@ impl<'de> Deserialize<'de> for Entry {
                             "entryId" => Ok(Field::EntryId),
                             "sortId" => Ok(Field::SortId),
                             "content" => Ok(Field::Content),
-                            _ => Err(de::Error::unknown_field(value, FIELDS)),
+                            _ => Err(de::Error::unknown_field(
+                                value,
+                                &["entryId", "sortId", "content"],
+                            )),
                         }
                     }
                 }
@@ -538,6 +550,7 @@ impl<'de> Deserialize<'de> for Entry {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -553,6 +566,7 @@ pub(crate) struct HomeConversation {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -569,6 +583,7 @@ pub(crate) struct HomeConversationContent {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
@@ -584,6 +599,7 @@ pub(crate) struct HCItem {
     Debug,
     Hash,
     PartialEq,
+    Eq,
     Serialize,
     Deserialize,
     Archive,
