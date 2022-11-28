@@ -1,3 +1,4 @@
+use crate::error::TwtScrapeError::IdParseError;
 use crate::timeline::Place;
 use crate::{
     error::{
@@ -22,6 +23,7 @@ use std::{
     collections::{HashMap, VecDeque},
     fmt::{self, Display, Write},
 };
+use tracing::warn;
 
 #[cfg(feature = "scrape")]
 static LINK_SELECTOR: Selector = Selector::parse("a").unwrap();
@@ -49,6 +51,7 @@ pub fn twitter_request_url_thread(
 pub struct Tweet {
     pub id: u64,
     pub conversation_id: u64,
+    pub posted_id: Option<u64>,
     pub tweet_type: TweetType,
 }
 
@@ -115,10 +118,32 @@ impl Tweet {
             {
                 if let Instruction::TimelineAddEntries(add) = inst {
                     for entry in add.entries {
-                        match entry {
-                            Entry::Tweet(twt) => {
+                        match entry.content {
+                            EntryVariant::Tweet(twt) => {
                                 let mut tweet =
                                     Tweet::new_from_entry(&twt.item_content.tweet_results)?;
+
+                                if tweet.id == 0 {
+                                    let twttid = match entry
+                                        .entry_id
+                                        .split("-")
+                                        .nth(1)
+                                        .map(|x| x.parse::<u64>().ok())
+                                        .flatten()
+                                        .ok_or(IdParseError(format!("Graveyard Tweet No Entry ID")))
+                                    {
+                                        Ok(id) => id,
+                                        Err(why) => {
+                                            warn!(
+                                                error = why,
+                                                id = id,
+                                                "No ID, leaving orphan tree(s)"
+                                            );
+                                            continue;
+                                        }
+                                    };
+                                    tweet.id = twttid;
+                                }
                                 tweet.conversation_id = conversation_id;
                                 tweets.push(tweet);
 
@@ -136,11 +161,16 @@ impl Tweet {
                                     users.push(user)
                                 }
                             }
-                            Entry::ConversationThread(ct) => {
+                            EntryVariant::ConversationThread(ct) => {
                                 for thread in ct.content.items {
                                     let mut tweet = Tweet::new_from_entry(
                                         &thread.item.item_content.tweet_results,
                                     )?;
+
+                                    if tweet.id == 0 {
+                                        warn!("Deleted Tweet, generating orphans...");
+                                        continue;
+                                    }
                                     tweet.conversation_id = conversation_id;
                                     tweets.push(tweet);
 
@@ -165,7 +195,7 @@ impl Tweet {
                                     }
                                 }
                             }
-                            Entry::Cursor(_) => continue,
+                            EntryVariant::Cursor(_) => continue,
                         }
                     }
                 }
@@ -206,6 +236,12 @@ impl Tweet {
                     .conversation_id_str
                     .parse::<u64>()
                     .map_err(|why| TwitterBadRestId("Conversation RestID", why.to_string()))?;
+
+                let user_id = trr
+                    .legacy
+                    .user_id_str
+                    .parse::<u64>()
+                    .map_err(|why| TwitterBadRestId("User RestID", why.to_string()))?;
 
                 let created = DateTime::<Utc>::from(
                     DateTime::parse_from_str(&trr.legacy.created_at, TWEET_CREATED_DATETIME)
@@ -342,6 +378,7 @@ impl Tweet {
                 Ok(Tweet {
                     id,
                     conversation_id,
+                    posted_id: Some(user_id),
                     tweet_type: TweetType::Tweet(Box::new(TweetData {
                         created,
                         edit_ids,
@@ -380,6 +417,7 @@ impl Tweet {
             TweetResults::Tombstone(tomb) => Ok(Tweet {
                 id: 0,
                 conversation_id: 0,
+                posted_id: None,
                 tweet_type: TweetType::Tombstone(tomb.tombstone.text.text.clone()),
             }),
         }
@@ -388,7 +426,13 @@ impl Tweet {
 
 impl std::hash::Hash for Tweet {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state)
+        if self.id != 0 {
+            self.id.hash(state);
+        } else {
+            self.conversation_id.hash(state);
+            self.tweet_type.hash(state);
+            self.posted_id.hash(state);
+        }
     }
 }
 
@@ -773,7 +817,14 @@ pub(crate) struct TimelineAddEntries {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub(crate) enum Entry {
+pub(crate) struct Entry {
+    #[serde(rename = "entryId")]
+    pub entry_id: String,
+    pub content: EntryVariant,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub(crate) enum EntryVariant {
     Tweet(TweetEnt),
     ConversationThread(ConversationThread),
     Cursor(Cursor),
@@ -786,7 +837,6 @@ impl<'de> Deserialize<'de> for Entry {
     {
         enum Field {
             EntryId,
-            TypeName,
             SortId,
             Content,
         }
@@ -811,7 +861,6 @@ impl<'de> Deserialize<'de> for Entry {
                     {
                         match value {
                             "entryId" => Ok(Field::EntryId),
-                            "__typeName" => Ok(Field::TypeName),
                             "sortId" => Ok(Field::SortId),
                             "content" => Ok(Field::Content),
                             _ => Err(de::Error::unknown_variant(value, VARIANTS)),
@@ -844,20 +893,17 @@ impl<'de> Deserialize<'de> for Entry {
                         Field::EntryId => {
                             entry_id = Some(map.next_value()?);
                         }
-                        Field::TypeName => {
-                            __typename = Some(map.next_value()?);
-                        }
                         Field::SortId => {
                             sort_id = Some(map.next_value()?);
                         }
                         Field::Content => {
                             if let Some(entry) = &entry_id {
                                 if entry.starts_with("tweet-") {
-                                    Ok(Entry::Tweet(map.next_value()?))
+                                    Ok(EntryVariant::Tweet(map.next_value()?))
                                 } else if entry.starts_with("conversationthread-") {
-                                    Ok(Entry::ConversationThread(map.next_value()?))
+                                    Ok(EntryVariant::ConversationThread(map.next_value()?))
                                 } else if entry.starts_with("cursor-") {
-                                    Ok(Entry::Cursor(map.next_value()?))
+                                    Ok(EntryVariant::Cursor(map.next_value()?))
                                 } else {
                                     Err(de::Error::unknown_variant(
                                         entry,
@@ -877,7 +923,7 @@ impl<'de> Deserialize<'de> for Entry {
         }
 
         const VARIANTS: &[&str] = &["Tweet", "ConversationThread", "Cursor"];
-        deserializer.deserialize_enum("Entry", VARIANTS, EntryVisitor)
+        deserializer.deserialize_map(EntryVisitor {})
     }
 }
 
